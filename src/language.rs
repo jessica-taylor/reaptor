@@ -11,30 +11,30 @@ enum VMPtrType {
     Rc
 }
 
-enum VMWordLValue {
-    Local(usize),
-    Global(usize),
-    Index(Box<VMPtrLValue>, Box<VMWordRValue>),
+enum VMWordLValue<V> {
+    Local(V),
+    Global(V),
+    Index(Box<VMPtrLValue<V>>, Box<VMWordRValue<V>>),
 }
 
-enum VMPtrLValue {
-    Local(usize),
-    Global(usize),
-    Index(Box<VMPtrLValue>, Box<VMWordRValue>),
+enum VMPtrLValue<V> {
+    Local(V),
+    Global(V),
+    Index(Box<VMPtrLValue<V>>, Box<VMWordRValue<V>>),
 }
 
-enum VMWordRValue {
-    Local(usize),
-    Global(usize),
-    Index(Box<VMPtrLValue>, Box<VMWordRValue>),
-    PtrTag(Box<VMPtrLValue>),
-    PtrLengthWord(Box<VMPtrLValue>),
-    PtrLengthPtr(Box<VMPtrLValue>),
+enum VMWordRValue<V> {
+    Local(V),
+    Global(V),
+    Index(Box<VMPtrLValue<V>>, Box<VMWordRValue<V>>),
+    PtrTag(Box<VMPtrLValue<V>>),
+    PtrLengthWord(Box<VMPtrLValue<V>>),
+    PtrLengthPtr(Box<VMPtrLValue<V>>),
 }
 
-enum VMPtrRValue {
-    Copy(VMPtrLValue),
-    CloneRc(VMPtrLValue),
+enum VMPtrRValue<V> {
+    Copy(VMPtrLValue<V>),
+    CloneRc(VMPtrLValue<V>),
 }
 
 struct Counts {
@@ -42,30 +42,31 @@ struct Counts {
     ptrs: usize
 }
 
-struct Locals {
-    words: Vec<usize>,
-    ptrs: Vec<usize>,
+struct Locals<V> {
+    words: Vec<V>,
+    ptrs: Vec<V>,
 }
 
-enum VMStatement {
-    SetWord(VMWordLValue, VMWordRValue),
-    SetPtr(VMPtrLValue, VMPtrRValue),
-    SwapWord(VMWordLValue, VMWordLValue),
-    SwapPtr(VMWordLValue, VMPtrLValue),
-    Alloc(VMPtrLValue, VMWordRValue),
-    Call(usize, usize, Locals, Locals), // module, function, args, returns
-    CallPtr(VMPtrLValue, Locals, Locals),
-    Return(Locals)
+enum VMStatement<V> {
+    SetWord(VMWordLValue<V>, VMWordRValue<V>),
+    SetPtr(VMPtrLValue<V>, VMPtrRValue<V>),
+    SwapWord(VMWordLValue<V>, VMWordLValue<V>),
+    SwapPtr(VMWordLValue<V>, VMPtrLValue<V>),
+    Alloc(VMPtrLValue<V>, VMWordRValue<V>),
+    Call(V, V, Locals<V>, Locals<V>), // module, function, args, returns
+    Closure(V, V, Locals<V>), // module, function, curries
+    CallPtr(VMPtrLValue<V>, Locals<V>, Locals<V>),
+    Return(Locals<V>)
 }
 
-struct VMProcedure {
+struct VMProcedure<V> {
     param_counts: Counts,
     local_counts: Counts, // must be >= param_counts
     return_counts: Counts, // must be <= local_counts
-    statements: Vec<VMStatement>,
+    statements: Vec<VMStatement<V>>,
 }
 
-struct VMModule {
+struct VMModule<V> {
     globals: Counts,
-    procedures: Vec<VMProcedure>,
+    procedures: Vec<VMProcedure<V>>,
 }
