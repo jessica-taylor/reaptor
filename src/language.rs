@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 trait VarMapper<V1, V2> {
     fn get_global_word(&self, word: &V1) -> Result<V2, String>;
     fn get_global_ptr(&self, ptr: &V1) -> Result<V2, String>;
@@ -9,11 +11,13 @@ trait VarMapper<V1, V2> {
     fn get_procedure(&self, module: &V1, procedure: &V1) -> Result<V2, String>;
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone, Copy)]
 enum VMType {
     Word,
     Ptr,
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone, Copy)]
 enum VMPtrType {
     Fun,
     Static,
@@ -21,11 +25,13 @@ enum VMPtrType {
     Rc
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone, Copy)]
 struct Counts {
     words: usize,
     ptrs: usize
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 struct Locals<V> {
     words: Vec<V>,
     ptrs: Vec<V>,
@@ -55,6 +61,7 @@ impl<V> Locals<V> {
     }
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 enum VMWordLValue<V> {
     Local(V),
     Global(V),
@@ -71,6 +78,7 @@ impl<V> VMWordLValue<V> {
     }
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 enum VMPtrLValue<V> {
     Local(V),
     Global(V),
@@ -87,6 +95,7 @@ impl<V> VMPtrLValue<V> {
     }
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 enum VMWordRValue<V> {
     Local(V),
     Global(V),
@@ -109,6 +118,7 @@ impl<V> VMWordRValue<V> {
     }
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 enum VMPtrRValue<V> {
     Copy(Box<VMPtrLValue<V>>),
     CloneRc(Box<VMPtrLValue<V>>),
@@ -142,6 +152,7 @@ impl<V> VMPtrRValue<V> {
 }
 
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 enum VMStatement<V> {
     SetWord(VMWordLValue<V>, VMWordRValue<V>),
     SetPtr(VMPtrLValue<V>, VMPtrRValue<V>),
@@ -153,6 +164,29 @@ enum VMStatement<V> {
     Return(Locals<V>)
 }
 
+impl<V> VMStatement<V> {
+    fn map<V2>(&self, mapper: &dyn VarMapper<V, V2>) -> Result<VMStatement<V2>, String> {
+        Ok(match self {
+            VMStatement::SetWord(lvalue, rvalue) => VMStatement::SetWord(lvalue.map(mapper)?, rvalue.map(mapper)?),
+            VMStatement::SetPtr(lvalue, rvalue) => VMStatement::SetPtr(lvalue.map(mapper)?, rvalue.map(mapper)?),
+            VMStatement::SwapWord(lvalue1, lvalue2) => VMStatement::SwapWord(lvalue1.map(mapper)?, lvalue2.map(mapper)?),
+            VMStatement::SwapPtr(lvalue1, lvalue2) => VMStatement::SwapPtr(lvalue1.map(mapper)?, lvalue2.map(mapper)?),
+            VMStatement::Alloc(lvalue, rvalue) => VMStatement::Alloc(lvalue.map(mapper)?, rvalue.map(mapper)?),
+            VMStatement::Call(module, function, args, returns) => VMStatement::Call(
+                mapper.get_module(module)?,
+                mapper.get_procedure(module, function)?,
+                args.map(mapper)?,
+                returns.map(mapper)?),
+            VMStatement::CallPtr(ptr, args, returns) => VMStatement::CallPtr(
+                ptr.map(mapper)?,
+                args.map(mapper)?,
+                returns.map(mapper)?),
+            VMStatement::Return(returns) => VMStatement::Return(returns.map(mapper)?),
+        })
+    }
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 struct VMProcedure<V> {
     params: Locals<V>,
     local_counts: Counts,
@@ -160,9 +194,38 @@ struct VMProcedure<V> {
     statements: Vec<VMStatement<V>>,
 }
 
+impl<V> VMProcedure<V> {
+    fn map<V2>(&self, mapper: &dyn VarMapper<V, V2>) -> Result<VMProcedure<V2>, String> {
+        let mut statements = Vec::new();
+        for stmt in &self.statements {
+            statements.push(stmt.map(mapper)?);
+        }
+        Ok(VMProcedure {
+            params: self.params.map(mapper)?,
+            local_counts: self.local_counts,
+            return_counts: self.return_counts,
+            statements,
+        })
+    }
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 struct VMModule<V> {
     globals: Counts,
     procedures: Vec<VMProcedure<V>>,
+}
+
+impl<V> VMModule<V> {
+    fn map<V2>(&self, mapper: &dyn VarMapper<V, V2>) -> Result<VMModule<V2>, String> {
+        let mut procedures = Vec::new();
+        for proc in &self.procedures {
+            procedures.push(proc.map(mapper)?);
+        }
+        Ok(VMModule {
+            globals: self.globals,
+            procedures,
+        })
+    }
 }
 
 struct VarProcedureManager {
