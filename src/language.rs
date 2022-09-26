@@ -13,16 +13,19 @@ enum VMPtrType {
 
 enum VMWordLValue {
     Local(usize),
+    Global(usize),
     Index(Box<VMPtrLValue>, Box<VMWordRValue>),
 }
 
 enum VMPtrLValue {
     Local(usize),
+    Global(usize),
     Index(Box<VMPtrLValue>, Box<VMWordRValue>),
 }
 
 enum VMWordRValue {
     Local(usize),
+    Global(usize),
     Index(Box<VMPtrLValue>, Box<VMWordRValue>),
     PtrTag(Box<VMPtrLValue>),
     PtrLengthWord(Box<VMPtrLValue>),
@@ -35,8 +38,8 @@ enum VMPtrRValue {
 }
 
 struct Counts {
-    n_words: usize,
-    n_ptrs: usize
+    words: usize,
+    ptrs: usize
 }
 
 struct Locals {
@@ -50,7 +53,7 @@ enum VMStatement {
     SwapWord(VMWordLValue, VMWordLValue),
     SwapPtr(VMWordLValue, VMPtrLValue),
     Alloc(VMPtrLValue, VMWordRValue),
-    Call(usize, Locals, Locals),
+    Call(usize, usize, Locals, Locals), // module, function, args, returns
     CallPtr(VMPtrLValue, Locals, Locals),
     Return(Locals)
 }
@@ -60,4 +63,9 @@ struct VMProcedure {
     local_counts: Counts, // must be >= param_counts
     return_counts: Counts, // must be <= local_counts
     statements: Vec<VMStatement>,
+}
+
+struct VMModule {
+    globals: Counts,
+    procedures: Vec<VMProcedure>,
 }
