@@ -2,21 +2,15 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-trait LibraryVarMapper<V1, V2> {
+trait VarMapper<V1, V2> {
     fn get_module(&self, module: &V1) -> Result<V2, String>;
-    fn get_module_mapper<'a>(&'a self, module: &V2) -> Result<Box<dyn ModuleVarMapper<V1, V2> + 'a>, String>;
-}
 
-trait ModuleVarMapper<V1, V2> : LibraryVarMapper<V1, V2> {
-    fn get_procedure(&self, procedure: &V1) -> Result<V2, String>;
-    fn get_global_word(&self, word: &V1) -> Result<V2, String>;
-    fn get_global_ptr(&self, ptr: &V1) -> Result<V2, String>;
-    fn get_procedure_mapper<'a>(&'a self, procedure: &V2) -> Result<Box<dyn ProcedureVarMapper<V1, V2> + 'a>, String>;
-}
+    fn get_procedure(&self, mod_id: &V2, procedure: &V1) -> Result<V2, String>;
+    fn get_global_word(&self, mod_id: &V2, word: &V1) -> Result<V2, String>;
+    fn get_global_ptr(&self, mod_id: &V2, ptr: &V1) -> Result<V2, String>;
 
-trait ProcedureVarMapper<V1, V2> : ModuleVarMapper<V1, V2> {
-    fn get_local_word(&self, word: &V1) -> Result<V2, String>;
-    fn get_local_ptr(&self, ptr: &V1) -> Result<V2, String>;
+    fn get_local_word(&self, mod_id: &V2, proc_id: &V2, word: &V1) -> Result<V2, String>;
+    fn get_local_ptr(&self, mod_id: &V2, proc_id: &V2, ptr: &V1) -> Result<V2, String>;
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone, Copy)]
@@ -74,14 +68,14 @@ impl Vars<usize> {
 struct Locals<V>(Vars<V>);
 
 impl<V> Locals<V> {
-    fn map<V2>(&self, mapper: &dyn ProcedureVarMapper<V, V2>) -> Result<Locals<V2>, String> {
+    fn map<V2>(&self, mod_id: &V2, proc_id: &V2, mapper: &dyn VarMapper<V, V2>) -> Result<Locals<V2>, String> {
         let mut words = Vec::new();
         let mut ptrs = Vec::new();
         for word in &self.0.words {
-            words.push(mapper.get_local_word(word)?);
+            words.push(mapper.get_local_word(mod_id, proc_id, word)?);
         }
         for ptr in &self.0.ptrs {
-            ptrs.push(mapper.get_local_ptr(ptr)?);
+            ptrs.push(mapper.get_local_ptr(mod_id, proc_id, ptr)?);
         }
         Ok(Locals(Vars {
             words: words,
@@ -94,14 +88,14 @@ impl<V> Locals<V> {
 struct Globals<V>(Vars<V>);
 
 impl<V> Globals<V> {
-    fn map<V2>(&self, mapper: &dyn ModuleVarMapper<V, V2>) -> Result<Globals<V2>, String> {
+    fn map<V2>(&self, mod_id: &V2, mapper: &dyn VarMapper<V, V2>) -> Result<Globals<V2>, String> {
         let mut words = Vec::new();
         let mut ptrs = Vec::new();
         for word in &self.0.words {
-            words.push(mapper.get_global_word(word)?);
+            words.push(mapper.get_global_word(mod_id, word)?);
         }
         for ptr in &self.0.ptrs {
-            ptrs.push(mapper.get_global_ptr(ptr)?);
+            ptrs.push(mapper.get_global_ptr(mod_id, ptr)?);
         }
         Ok(Globals(Vars {
             words: words,
@@ -120,11 +114,11 @@ enum VMWordLValue<V> {
 }
 
 impl<V> VMWordLValue<V> {
-    fn map<V2>(&self, mapper: &dyn ProcedureVarMapper<V, V2>) -> Result<VMWordLValue<V2>, String> {
+    fn map<V2>(&self, mod_id: &V2, proc_id: &V2, mapper: &dyn VarMapper<V, V2>) -> Result<VMWordLValue<V2>, String> {
         Ok(match self {
-            VMWordLValue::Local(v) => VMWordLValue::Local(mapper.get_local_word(v)?),
-            VMWordLValue::Global(v) => VMWordLValue::Global(mapper.get_global_word(v)?),
-            VMWordLValue::Index(ptr, index) => VMWordLValue::Index(Box::new(ptr.map(mapper)?), Box::new(index.map(mapper)?)),
+            VMWordLValue::Local(v) => VMWordLValue::Local(mapper.get_local_word(mod_id, proc_id, v)?),
+            VMWordLValue::Global(v) => VMWordLValue::Global(mapper.get_global_word(mod_id, v)?),
+            VMWordLValue::Index(ptr, index) => VMWordLValue::Index(Box::new(ptr.map(mod_id, proc_id, mapper)?), Box::new(index.map(mod_id, proc_id, mapper)?)),
         })
     }
 }
@@ -137,11 +131,11 @@ enum VMPtrLValue<V> {
 }
 
 impl<V> VMPtrLValue<V> {
-    fn map<V2>(&self, mapper: &dyn ProcedureVarMapper<V, V2>) -> Result<VMPtrLValue<V2>, String> {
+    fn map<V2>(&self, mod_id: &V2, proc_id: &V2, mapper: &dyn VarMapper<V, V2>) -> Result<VMPtrLValue<V2>, String> {
         Ok(match self {
-            VMPtrLValue::Local(v) => VMPtrLValue::Local(mapper.get_local_ptr(v)?),
-            VMPtrLValue::Global(v) => VMPtrLValue::Global(mapper.get_global_ptr(v)?),
-            VMPtrLValue::Index(ptr, index) => VMPtrLValue::Index(Box::new(ptr.map(mapper)?), Box::new(index.map(mapper)?)),
+            VMPtrLValue::Local(v) => VMPtrLValue::Local(mapper.get_local_ptr(mod_id, proc_id, v)?),
+            VMPtrLValue::Global(v) => VMPtrLValue::Global(mapper.get_global_ptr(mod_id, v)?),
+            VMPtrLValue::Index(ptr, index) => VMPtrLValue::Index(Box::new(ptr.map(mod_id, proc_id, mapper)?), Box::new(index.map(mod_id, proc_id, mapper)?)),
         })
     }
 }
@@ -157,14 +151,14 @@ enum VMWordRValue<V> {
 }
 
 impl<V> VMWordRValue<V> {
-    fn map<V2>(&self, mapper: &dyn ProcedureVarMapper<V, V2>) -> Result<VMWordRValue<V2>, String> {
+    fn map<V2>(&self, mod_id: &V2, proc_id: &V2, mapper: &dyn VarMapper<V, V2>) -> Result<VMWordRValue<V2>, String> {
         Ok(match self {
-            VMWordRValue::Local(v) => VMWordRValue::Local(mapper.get_local_word(v)?),
-            VMWordRValue::Global(v) => VMWordRValue::Global(mapper.get_global_word(v)?),
-            VMWordRValue::Index(ptr, index) => VMWordRValue::Index(Box::new(ptr.map(mapper)?), Box::new(index.map(mapper)?)),
-            VMWordRValue::PtrTag(ptr) => VMWordRValue::PtrTag(Box::new(ptr.map(mapper)?)),
-            VMWordRValue::PtrLengthWord(ptr) => VMWordRValue::PtrLengthWord(Box::new(ptr.map(mapper)?)),
-            VMWordRValue::PtrLengthPtr(ptr) => VMWordRValue::PtrLengthPtr(Box::new(ptr.map(mapper)?)),
+            VMWordRValue::Local(v) => VMWordRValue::Local(mapper.get_local_word(mod_id, proc_id, v)?),
+            VMWordRValue::Global(v) => VMWordRValue::Global(mapper.get_global_word(mod_id, v)?),
+            VMWordRValue::Index(ptr, index) => VMWordRValue::Index(Box::new(ptr.map(mod_id, proc_id, mapper)?), Box::new(index.map(mod_id, proc_id, mapper)?)),
+            VMWordRValue::PtrTag(ptr) => VMWordRValue::PtrTag(Box::new(ptr.map(mod_id, proc_id, mapper)?)),
+            VMWordRValue::PtrLengthWord(ptr) => VMWordRValue::PtrLengthWord(Box::new(ptr.map(mod_id, proc_id, mapper)?)),
+            VMWordRValue::PtrLengthPtr(ptr) => VMWordRValue::PtrLengthPtr(Box::new(ptr.map(mod_id, proc_id, mapper)?)),
         })
     }
 }
@@ -177,24 +171,24 @@ enum VMPtrRValue<V> {
 }
 
 impl<V> VMPtrRValue<V> {
-    fn map<V2>(&self, mapper: &dyn ProcedureVarMapper<V, V2>) -> Result<VMPtrRValue<V2>, String> {
+    fn map<V2>(&self, mod_id: &V2, proc_id: &V2, mapper: &dyn VarMapper<V, V2>) -> Result<VMPtrRValue<V2>, String> {
         Ok(match self {
-            VMPtrRValue::Copy(ptr) => VMPtrRValue::Copy(Box::new(ptr.map(mapper)?)),
-            VMPtrRValue::CloneRc(ptr) => VMPtrRValue::CloneRc(Box::new(ptr.map(mapper)?)),
+            VMPtrRValue::Copy(ptr) => VMPtrRValue::Copy(Box::new(ptr.map(mod_id, proc_id, mapper)?)),
+            VMPtrRValue::CloneRc(ptr) => VMPtrRValue::CloneRc(Box::new(ptr.map(mod_id, proc_id, mapper)?)),
             VMPtrRValue::Closure(module, function, curries) => {
                 let mut cur_words = Vec::new();
                 let mut cur_ptrs = Vec::new();
                 for cur in &curries.0.words {
-                    cur_words.push(Box::new(cur.map(mapper)?));
+                    cur_words.push(Box::new(cur.map(mod_id, proc_id, mapper)?));
                 }
                 for cur in &curries.0.ptrs {
-                    cur_ptrs.push(Box::new(cur.map(mapper)?));
+                    cur_ptrs.push(Box::new(cur.map(mod_id, proc_id, mapper)?));
                 }
-                let mod_id = mapper.get_module(module)?;
-                let proc = mapper.get_module_mapper(&mod_id)?.get_procedure(function)?;
+                let fun_mod_id = mapper.get_module(module)?;
+                let fun_proc_id = mapper.get_procedure(&fun_mod_id, function)?;
                 VMPtrRValue::Closure(
-                    mod_id,
-                    proc,
+                    fun_mod_id,
+                    fun_proc_id,
                     Locals(Vars {
                         words: cur_words,
                         ptrs: cur_ptrs,
@@ -218,27 +212,27 @@ enum VMStatement<V> {
 }
 
 impl<V> VMStatement<V> {
-    fn map<V2>(&self, mapper: &dyn ProcedureVarMapper<V, V2>) -> Result<VMStatement<V2>, String> {
+    fn map<V2>(&self, mod_id: &V2, proc_id: &V2, mapper: &dyn VarMapper<V, V2>) -> Result<VMStatement<V2>, String> {
         Ok(match self {
-            VMStatement::SetWord(lvalue, rvalue) => VMStatement::SetWord(lvalue.map(mapper)?, rvalue.map(mapper)?),
-            VMStatement::SetPtr(lvalue, rvalue) => VMStatement::SetPtr(lvalue.map(mapper)?, rvalue.map(mapper)?),
-            VMStatement::SwapWord(lvalue1, lvalue2) => VMStatement::SwapWord(lvalue1.map(mapper)?, lvalue2.map(mapper)?),
-            VMStatement::SwapPtr(lvalue1, lvalue2) => VMStatement::SwapPtr(lvalue1.map(mapper)?, lvalue2.map(mapper)?),
-            VMStatement::Alloc(lvalue, rvalue) => VMStatement::Alloc(lvalue.map(mapper)?, rvalue.map(mapper)?),
+            VMStatement::SetWord(lvalue, rvalue) => VMStatement::SetWord(lvalue.map(mod_id, proc_id, mapper)?, rvalue.map(mod_id, proc_id, mapper)?),
+            VMStatement::SetPtr(lvalue, rvalue) => VMStatement::SetPtr(lvalue.map(mod_id, proc_id, mapper)?, rvalue.map(mod_id, proc_id, mapper)?),
+            VMStatement::SwapWord(lvalue1, lvalue2) => VMStatement::SwapWord(lvalue1.map(mod_id, proc_id, mapper)?, lvalue2.map(mod_id, proc_id, mapper)?),
+            VMStatement::SwapPtr(lvalue1, lvalue2) => VMStatement::SwapPtr(lvalue1.map(mod_id, proc_id, mapper)?, lvalue2.map(mod_id, proc_id, mapper)?),
+            VMStatement::Alloc(lvalue, rvalue) => VMStatement::Alloc(lvalue.map(mod_id, proc_id, mapper)?, rvalue.map(mod_id, proc_id, mapper)?),
             VMStatement::Call(module, function, args, returns) => {
-                let module2 = mapper.get_module(module)?;
-                let proc = mapper.get_module_mapper(&module2)?.as_ref().get_procedure(function)?;
+                let fun_module = mapper.get_module(module)?;
+                let fun_proc = mapper.get_procedure(&fun_module, function)?;
                 VMStatement::Call(
-                    module2,
-                    proc,
-                    args.map(mapper)?,
-                    returns.map(mapper)?)
+                    fun_module,
+                    fun_proc,
+                    args.map(mod_id, proc_id, mapper)?,
+                    returns.map(mod_id, proc_id, mapper)?)
             },
             VMStatement::CallPtr(ptr, args, returns) => VMStatement::CallPtr(
-                ptr.map(mapper)?,
-                args.map(mapper)?,
-                returns.map(mapper)?),
-            VMStatement::Return(returns) => VMStatement::Return(returns.map(mapper)?),
+                ptr.map(mod_id, proc_id, mapper)?,
+                args.map(mod_id, proc_id, mapper)?,
+                returns.map(mod_id, proc_id, mapper)?),
+            VMStatement::Return(returns) => VMStatement::Return(returns.map(mod_id, proc_id, mapper)?),
         })
     }
 }
@@ -253,15 +247,18 @@ struct VMProcedure<V> {
 }
 
 impl<V> VMProcedure<V> {
-    fn map<V2>(&self, mapper: &dyn ProcedureVarMapper<V, V2>) -> Result<VMProcedure<V2>, String> {
+    fn map<V2>(&self, mod_id: &V2, mapper: &dyn VarMapper<V, V2>) -> Result<VMProcedure<V2>, String> {
+        let proc_id = mapper.get_procedure(mod_id, &self.name)?;
         let mut statements = Vec::new();
         for stmt in &self.statements {
-            statements.push(stmt.map(mapper)?);
+            statements.push(stmt.map(mod_id, &proc_id, mapper)?);
         }
+        let locals = self.locals.map(mod_id, &proc_id, mapper)?;
+        let params = self.params.map(mod_id, &proc_id, mapper)?;
         Ok(VMProcedure {
-            name: mapper.get_procedure(&self.name)?,
-            locals: self.locals.map(mapper)?,
-            params: self.params.map(mapper)?,
+            name: proc_id,
+            locals,
+            params,
             return_counts: self.return_counts,
             statements,
         })
@@ -276,15 +273,16 @@ struct VMModule<V> {
 }
 
 impl<V> VMModule<V> {
-    fn map<V2>(&self, mapper: &dyn ModuleVarMapper<V, V2>) -> Result<VMModule<V2>, String> {
+    fn map<V2>(&self, mapper: &dyn VarMapper<V, V2>) -> Result<VMModule<V2>, String> {
+        let mod_id = mapper.get_module(&self.name)?;
         let mut procedures = Vec::new();
         for proc in &self.procedures {
-            let name2 = mapper.get_procedure(&proc.name)?;
-            procedures.push(proc.map(mapper.get_procedure_mapper(&name2)?.as_ref())?);
+            procedures.push(proc.map(&mod_id, mapper)?);
         }
+        let globals = self.globals.map(&mod_id, mapper)?;
         Ok(VMModule {
-            name: mapper.get_module(&self.name)?,
-            globals: self.globals.map(mapper)?,
+            name: mod_id,
+            globals,
             procedures,
         })
     }
@@ -308,17 +306,16 @@ struct VMLibrary<V> {
 }
 
 impl<V> VMLibrary<V> {
-    fn map<V2>(&self, mapper: &dyn LibraryVarMapper<V, V2>) -> Result<VMLibrary<V2>, String> {
+    fn map<V2>(&self, mapper: &dyn VarMapper<V, V2>) -> Result<VMLibrary<V2>, String> {
         let mut modules = Vec::new();
         for module in &self.modules {
-            let name2 = mapper.get_module(&module.name)?;
-            modules.push(module.map(mapper.get_module_mapper(&name2)?.as_ref())?);
+            modules.push(module.map(mapper)?);
         }
         let mut exports = BTreeMap::new();
         for (k, v) in &self.exports {
-            let mod2 = mapper.get_module(&v.0)?;
-            let proc = mapper.get_module_mapper(&mod2)?.get_procedure(&v.1)?;
-            exports.insert(k.clone(), (mod2, proc));
+            let mod_id = mapper.get_module(&v.0)?;
+            let proc_id = mapper.get_procedure(&mod_id, &v.1)?;
+            exports.insert(k.clone(), (mod_id, proc_id));
         }
         Ok(VMLibrary { modules, exports })
     }
@@ -411,100 +408,31 @@ impl VarLibraryManager {
     }
 }
 
-impl LibraryVarMapper<String, usize> for VarLibraryManager {
+impl VarMapper<String, usize> for VarLibraryManager {
     fn get_module(&self, module: &String) -> Result<usize, String> {
         self.modules.get(module).cloned().ok_or(format!("unknown module {}", module))
     }
-    fn get_module_mapper<'a>(&'a self, module: &usize) -> Result<Box<dyn ModuleVarMapper<String, usize> + 'a>, String> {
-        Ok(Box::new(VarLibraryModuleManager {
-            library_manager: self,
-            module_manager: self.module_managers.get(*module).ok_or(format!("unknown module {}", module))?,
-        }))
+    fn get_procedure(&self, mod_id: &usize, procedure: &String) -> Result<usize, String> {
+        let mod_man = self.module_managers.get(*mod_id).ok_or(format!("bad module index"))?;
+        mod_man.procedures.get(procedure).cloned().ok_or(format!("unknown procedure {}", procedure))
     }
-}
-
-struct VarLibraryModuleManager<'a> {
-    library_manager: &'a VarLibraryManager,
-    module_manager: &'a VarModuleManager,
-}
-
-impl<'a> LibraryVarMapper<String, usize> for VarLibraryModuleManager<'a> {
-    fn get_module(&self, module: &String) -> Result<usize, String> {
-        self.library_manager.get_module(module)
+    fn get_global_word(&self, mod_id: &usize, word: &String) -> Result<usize, String> {
+        let mod_man = self.module_managers.get(*mod_id).ok_or(format!("bad module index"))?;
+        mod_man.global_words.get(word).cloned().ok_or(format!("unknown global word {}", word))
     }
-    fn get_module_mapper<'b>(&'b self, module: &usize) -> Result<Box<dyn ModuleVarMapper<String, usize> + 'b>, String> {
-        self.library_manager.get_module_mapper(module)
+    fn get_global_ptr(&self, mod_id: &usize, ptr: &String) -> Result<usize, String> {
+        let mod_man = self.module_managers.get(*mod_id).ok_or(format!("bad module index"))?;
+        mod_man.global_ptrs.get(ptr).cloned().ok_or(format!("unknown global ptr {}", ptr))
     }
-}
-
-impl<'a> ModuleVarMapper<String, usize> for VarLibraryModuleManager<'a> {
-    fn get_procedure(&self, procedure: &String) -> Result<usize, String> {
-        self.module_manager.procedures.get(procedure).cloned().ok_or(format!("unknown procedure {}", procedure))
+    fn get_local_word(&self, mod_id: &usize, proc_id: &usize, word: &String) -> Result<usize, String> {
+        let mod_man = self.module_managers.get(*mod_id).ok_or(format!("bad module index"))?;
+        let proc_man = mod_man.procedure_managers.get(*proc_id).ok_or(format!("bad procedure index"))?;
+        proc_man.local_words.get(word).cloned().ok_or(format!("unknown local word {}", word))
     }
-    fn get_global_word(&self, word: &String) -> Result<usize, String> {
-        self.module_manager.global_words.get(word).cloned().ok_or(format!("unknown global word {}", word))
-    }
-    fn get_global_ptr(&self, ptr: &String) -> Result<usize, String> {
-        self.module_manager.global_ptrs.get(ptr).cloned().ok_or(format!("unknown global ptr {}", ptr))
-    }
-    fn get_procedure_mapper<'b>(&'b self, procedure: &usize) -> Result<Box<dyn ProcedureVarMapper<String, usize> + 'b>, String> {
-        Ok(Box::new(VarLibraryModuleProcedureManager {
-            library_manager: self.library_manager,
-            module_manager: self.module_manager,
-            procedure_manager: self.module_manager.procedure_managers.get(*procedure).ok_or(format!("unknown procedure"))?,
-        }))
-    }
-}
-
-struct VarLibraryModuleProcedureManager<'a> {
-    library_manager: &'a VarLibraryManager,
-    module_manager: &'a VarModuleManager,
-    procedure_manager: &'a VarProcedureManager,
-}
-
-impl<'a> VarLibraryModuleProcedureManager<'a> {
-    fn to_library_module_manager(&self) -> VarLibraryModuleManager {
-        VarLibraryModuleManager {
-            library_manager: self.library_manager,
-            module_manager: self.module_manager,
-        }
-    }
-}
-
-impl<'a> LibraryVarMapper<String, usize> for VarLibraryModuleProcedureManager<'a> {
-    fn get_module(&self, module: &String) -> Result<usize, String> {
-        self.library_manager.get_module(module)
-    }
-    fn get_module_mapper<'b>(&'b self, module: &usize) -> Result<Box<dyn ModuleVarMapper<String, usize> + 'b>, String> {
-        self.library_manager.get_module_mapper(module)
-    }
-}
-
-impl<'a> ModuleVarMapper<String, usize> for VarLibraryModuleProcedureManager<'a> {
-    fn get_procedure(&self, procedure: &String) -> Result<usize, String> {
-        self.to_library_module_manager().get_procedure(procedure)
-    }
-    fn get_global_word(&self, word: &String) -> Result<usize, String> {
-        self.to_library_module_manager().get_global_word(word)
-    }
-    fn get_global_ptr(&self, ptr: &String) -> Result<usize, String> {
-        self.to_library_module_manager().get_global_ptr(ptr)
-    }
-    fn get_procedure_mapper<'b>(&'b self, procedure: &usize) -> Result<Box<dyn ProcedureVarMapper<String, usize> + 'b>, String> {
-        Ok(Box::new(VarLibraryModuleProcedureManager {
-            library_manager: self.library_manager,
-            module_manager: self.module_manager,
-            procedure_manager: self.module_manager.procedure_managers.get(*procedure).ok_or(format!("unknown procedure"))?,
-        }))
-    }
-}
-
-impl<'a> ProcedureVarMapper<String, usize> for VarLibraryModuleProcedureManager<'a> {
-    fn get_local_word(&self, word: &String) -> Result<usize, String> {
-        self.procedure_manager.local_words.get(word).cloned().ok_or(format!("unknown local word {}", word))
-    }
-    fn get_local_ptr(&self, ptr: &String) -> Result<usize, String> {
-        self.procedure_manager.local_ptrs.get(ptr).cloned().ok_or(format!("unknown local ptr {}", ptr))
+    fn get_local_ptr(&self, mod_id: &usize, proc_id: &usize, ptr: &String) -> Result<usize, String> {
+        let mod_man = self.module_managers.get(*mod_id).ok_or(format!("bad module index"))?;
+        let proc_man = mod_man.procedure_managers.get(*proc_id).ok_or(format!("bad procedure index"))?;
+        proc_man.local_ptrs.get(ptr).cloned().ok_or(format!("unknown local ptr {}", ptr))
     }
 }
 
