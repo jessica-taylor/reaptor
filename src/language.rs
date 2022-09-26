@@ -508,7 +508,7 @@ impl<'a> ProcedureVarMapper<String, usize> for VarLibraryModuleProcedureManager<
     }
 }
 
-fn translate_library_vars(lib: &VMLibrary<String>) -> VMLibrary<usize> {
+fn translate_library_vars(lib: &VMLibrary<String>) -> Result<VMLibrary<usize>, String> {
     let mut lib_manager = VarLibraryManager::new();
     for module in &lib.modules {
         let mut mod_manager = lib_manager.add_module(&module.name);
@@ -528,5 +528,5 @@ fn translate_library_vars(lib: &VMLibrary<String>) -> VMLibrary<usize> {
             }
         }
     }
-    panic!("not implemented")
+    lib.map(&lib_manager)
 }
