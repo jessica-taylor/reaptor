@@ -316,6 +316,112 @@ enum AllocSpec<V> {
 }
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
+enum AllocLength<V> {
+    Const(usize),
+    Dynamic(TypedRValue<V>)
+}
+
+impl<V: Eq + Ord + Clone> AllocSpec<V> {
+    fn get_size(&self, typ: &SimpleType) -> Result<(AllocLength<V>, AllocLength<V>), String> {
+        match self {
+            Self::Full => {
+                let counts = typ.size()?.to_counts()?;
+                Ok((AllocLength::Const(counts.words), AllocLength::Const(counts.ptrs)))
+            }
+            Self::Tuple(specs) => {
+                if let SimpleType::Tuple(typs) = typ {
+                    if specs.len() != typs.len() {
+                        return Err("bad tuple alloc spec".to_string());
+                    }
+                    let mut words: usize = 0;
+                    let mut ptrs: usize = 0;
+                    let mut word_addend = None;
+                    let mut ptr_addend = None;
+                    for (spec, typ) in specs.iter().zip(typs.iter()) {
+                        let (w, p) = spec.get_size(typ)?;
+                        if let AllocLength::Const(ws) = w {
+                            if ws != 0 && word_addend.is_some() {
+                                return Err("can't add items after a non-constant alloc size".to_string());
+                            }
+                            words += ws;
+                        } else if word_addend.is_none() {
+                            word_addend = Some(w);
+                        } else {
+                            return Err("bad tuple size".to_string());
+                        }
+
+                        if let AllocLength::Const(ps) = p {
+                            if ps != 0 && ptr_addend.is_some() {
+                                return Err("can't add items after a non-constant alloc size".to_string());
+                            }
+                            ptrs += ps;
+                        } else if ptr_addend.is_none() {
+                            ptr_addend = Some(p);
+                        } else {
+                            return Err("bad tuple size".to_string());
+                        }
+                    }
+                    
+                    let tot_words = if let Some(w) = word_addend {
+                        // TODO add stuff
+                        return Err("not implemented".to_string());
+                    } else {
+                        AllocLength::Const(words)
+                    };
+                    let tot_ptrs = if let Some(p) = ptr_addend {
+                        return Err("not implemented".to_string());
+                    } else {
+                        AllocLength::Const(ptrs)
+                    };
+                    Ok((tot_words, tot_ptrs))
+                } else {
+                    Err("bad tuple type".to_string())
+                }
+            },
+            Self::DynamicArray(len) => {
+                if let SimpleType::Array(Offset::Infinite, elem_type) = typ {
+                    let counts = elem_type.size()?.to_counts()?;
+                    let words = if counts.words == 0 {
+                        AllocLength::Const(0)
+                    } else {
+                        // TODO multiply
+                        return Err("not implemented".to_string());
+                    };
+                    let ptrs = if counts.ptrs == 0 {
+                        AllocLength::Const(0)
+                    } else {
+                        // TODO multiply
+                        return Err("not implemented".to_string());
+                    };
+                    Ok((words, ptrs))
+                } else {
+                    Err("bad array type".to_string())
+                }
+            },
+            Self::TrailingUnion(ix, spec) => {
+                if let SimpleType::Union(typs) = typ {
+                    if *ix >= typs.len() {
+                        return Err("bad union index".to_string());
+                    }
+                    let (w, p) = spec.get_size(&typs[*ix])?;
+                    let words = match w {
+                        AllocLength::Const(w) => AllocLength::Dynamic(TypedRValue::ConstWord(w as u64)),
+                        AllocLength::Dynamic(w) => AllocLength::Dynamic(w),
+                    };
+                    let ptrs = match p {
+                        AllocLength::Const(p) => AllocLength::Dynamic(TypedRValue::ConstWord(p as u64)),
+                        AllocLength::Dynamic(p) => AllocLength::Dynamic(p),
+                    };
+                    Ok((words, ptrs))
+                } else {
+                    Err("bad union type".to_string())
+                }
+            }
+        }
+    }
+}
+
+#[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
 enum TypedStatement<V> {
     Assign(TypedLValue<V>, TypedRValue<V>),
     AssignClone(TypedLValue<V>, TypedLValue<V>),
