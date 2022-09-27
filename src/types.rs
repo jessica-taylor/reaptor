@@ -3,7 +3,7 @@ use std::ops;
 
 use serde::{Deserialize, Serialize};
 
-use crate::language::{Counts, VMStatement, VMProcedure, VMWordLValue, VMWordRValue, VMPtrLValue, VMPtrRValue, WordUnOp, WordBinOp};
+use crate::assembly::{Counts, VMStatement, VMProcedure, VMWordLValue, VMWordRValue, VMPtrLValue, VMPtrRValue, WordUnOp, WordBinOp};
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Serialize, Deserialize)]
 enum Offset {

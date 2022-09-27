@@ -1,4 +1,4 @@
-mod language;
+mod assembly;
 mod types;
 
 fn main() {
