@@ -3,7 +3,7 @@ use std::ops;
 
 use serde::{Deserialize, Serialize};
 
-use crate::language::{Counts, VMStatement, VMProcedure, VMWordLValue, VMWordRValue, WordUnOp, WordBinOp};
+use crate::language::{Counts, VMStatement, VMProcedure, VMWordLValue, VMWordRValue, VMPtrLValue, VMPtrRValue, WordUnOp, WordBinOp};
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Serialize, Deserialize)]
 enum Offset {
@@ -191,6 +191,7 @@ enum SimpleTypeIndex<I> {
     TupleElem(usize, Box<SimpleTypeIndex<I>>),
     ArrayElem(I, Box<SimpleTypeIndex<I>>),
     UnionElem(usize, Box<SimpleTypeIndex<I>>),
+    // note: this is postfix
 }
 
 impl<I> SimpleTypeIndex<I> {
@@ -254,33 +255,33 @@ trait TypecheckCtx<V> {
 }
 
 trait CompileCtx<V> : TypecheckCtx<V> {
-    fn local_offset(&self, v: &V) -> Result<TypedValueOffset, String>;
-    fn global_offset(&self, v: &V) -> Result<TypedValueOffset, String>;
+    fn local_offset(&self, v: &V) -> Result<Counts, String>;
+    fn global_offset(&self, v: &V) -> Result<Counts, String>;
 }
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
 enum TypedLValue<V> {
     Local(V),
     Global(V),
-    TupleIndex(SimpleType, Box<TypedLValue<V>>, usize),
-    ArrayIndex(SimpleType, Box<TypedLValue<V>>, Box<TypedRValue<V>>),
-    UnionIndex(SimpleType, Box<TypedLValue<V>>, usize),
+    TupleIndex(Box<TypedLValue<V>>, usize),
+    ArrayIndex(Box<TypedLValue<V>>, Box<TypedRValue<V>>),
+    UnionIndex(Box<TypedLValue<V>>, usize),
     DerefPtr(SimpleType, Box<TypedLValue<V>>),
 }
 
 impl<V> TypedLValue<V> {
-    fn get_type(&self, ctx: &dyn TypecheckCtx<V>) -> Result<SimpleType, String> {
+    fn get_type<C: TypecheckCtx<V>>(&self, ctx: &C) -> Result<SimpleType, String> {
         match self {
             TypedLValue::Local(v) => ctx.local_type(v),
             TypedLValue::Global(v) => ctx.global_type(v),
-            TypedLValue::TupleIndex(tup_typ, tup, ix) => tup.get_type(ctx)?.index::<usize>(&SimpleTypeIndex::TupleElem(*ix, Box::new(SimpleTypeIndex::This))),
-            TypedLValue::ArrayIndex(arr_typ, arr, ix) => {
+            TypedLValue::TupleIndex(tup, ix) => tup.get_type(ctx)?.index::<usize>(&SimpleTypeIndex::TupleElem(*ix, Box::new(SimpleTypeIndex::This))),
+            TypedLValue::ArrayIndex(arr, ix) => {
                 if ix.get_type(ctx)? != SimpleType::Word {
                     return Err("array index must be a word".to_string());
                 }
                 arr.get_type(ctx)?.index::<usize>(&SimpleTypeIndex::ArrayElem(0, Box::new(SimpleTypeIndex::This)))
             },
-            TypedLValue::UnionIndex(union_typ, union, ix) => union.get_type(ctx)?.index::<usize>(&SimpleTypeIndex::UnionElem(*ix, Box::new(SimpleTypeIndex::This))),
+            TypedLValue::UnionIndex(union, ix) => union.get_type(ctx)?.index::<usize>(&SimpleTypeIndex::UnionElem(*ix, Box::new(SimpleTypeIndex::This))),
             TypedLValue::DerefPtr(typ, ptr) => {
                 if ptr.get_type(ctx)? != SimpleType::Ptr {
                     return Err("bad pointer type".to_string());
@@ -289,7 +290,93 @@ impl<V> TypedLValue<V> {
             }
         }
     }
-    fn compile_word_at(&self, ix: usize, ctx: &dyn CompileCtx<V>) -> Result<VMWordLValue, String> {
+    fn compile_word_at<C: CompileCtx<V>>(&self, ix: usize, ctx: &C) -> Result<VMWordLValue, String> {
+        let typ = self.get_type(ctx)?;
+        match self {
+            Self::Local(v) => {
+                let off = ctx.local_offset(v)?;
+                Ok(VMWordLValue::Local(Box::new(VMWordRValue::Const((off.words + ix) as u64))))
+            },
+            Self::Global(v) => {
+                let off = ctx.global_offset(v)?;
+                Ok(VMWordLValue::Global(Box::new(VMWordRValue::Const((off.words + ix) as u64))))
+            },
+            Self::TupleIndex(tup, tup_ix) => {
+                let tup_typ = tup.get_type(ctx)?;
+                let (start, end) = tup_typ.index_range(&SimpleTypeIndex::TupleElem(*tup_ix, Box::new(SimpleTypeIndex::This)))?;
+                match start.words {
+                    Offset::Finite(start_words) => {
+                        let off = start_words + ix;
+                        if Offset::Finite(off) < end.words {
+                            tup.compile_word_at(off, ctx)
+                        } else {
+                            Err("bad tuple index".to_string())
+                        }
+                    },
+                    Offset::Infinite => Err("bad tuple index".to_string()),
+                }
+            },
+            Self::UnionIndex(union, union_ix) => {
+                let union_typ = union.get_type(ctx)?;
+                let (start, end) = union_typ.index_range(&SimpleTypeIndex::UnionElem(*union_ix, Box::new(SimpleTypeIndex::This)))?;
+                match start.words {
+                    Offset::Finite(start) => {
+                        let off = start + ix;
+                        if Offset::Finite(off) < end.words {
+                            union.compile_word_at(off, ctx)
+                        } else {
+                            Err("bad union index".to_string())
+                        }
+                    },
+                    Offset::Infinite => Err("bad union index".to_string()),
+                }
+            },
+            Self::ArrayIndex(arr, ix) => {
+                let arr_typ = arr.get_type(ctx)?;
+                let (first_start, first_end) = arr_typ.index_range(&SimpleTypeIndex::ArrayElem(0, Box::new(SimpleTypeIndex::This)))?;
+                match (first_start.words, first_end.words) {
+                    (Offset::Finite(first_start), Offset::Finite(first_end)) => {
+                        let first_len = first_end - first_start;
+                        let first_lvalue = arr.compile_word_at(first_start, ctx)?;
+                        let ix_compiled = Box::new(ix.compile_word_at(0, ctx)?);
+                        let increase_offset = |off: Box<VMWordRValue>| -> Box<VMWordRValue> {
+                            Box::new(VMWordRValue::BinOp(WordBinOp::Add(false, true), off,
+                                Box::new(VMWordRValue::BinOp(WordBinOp::Mul(false, true), ix_compiled,
+                                    Box::new(VMWordRValue::Const(first_len as u64))))))
+
+                        };
+                        match first_lvalue {
+                            VMWordLValue::Local(off) =>
+                                Ok(VMWordLValue::Local(increase_offset(off))),
+                            VMWordLValue::Global(off) =>
+                                Ok(VMWordLValue::Global(increase_offset(off))),
+                            VMWordLValue::Index(arr2, arr_ix2) =>
+                                Ok(VMWordLValue::Index(arr2, increase_offset(arr_ix2)))
+                        }
+                    },
+                    _ => Err("bad array elem size".to_string()),
+                }
+            },
+            Self::DerefPtr(data_type, ptr) => {
+                let ptr_typ = ptr.get_type(ctx)?;
+                if ptr_typ != SimpleType::Ptr {
+                    return Err("bad pointer type".to_string());
+                }
+                let (start, end) = data_type.index_range(&SimpleTypeIndex::This)?;
+                if let Offset::Finite(start_words) = start.words {
+                    let off = start_words + ix;
+                    if Offset::Finite(off) < end.words {
+                        Ok(VMWordLValue::Index(Box::new(ptr.compile_ptr_at(off, ctx)?), Box::new(VMWordRValue::Const(ix as u64))))
+                    } else {
+                        Err("bad pointer index".to_string())
+                    }
+                } else {
+                    Err("bad pointer size".to_string())
+                }
+            }
+        }
+    }
+    fn compile_ptr_at<C: CompileCtx<V>>(&self, ix: usize, ctx: &C) -> Result<VMPtrLValue, String> {
         Err("not implemented".to_string())
     }
 }
@@ -307,7 +394,7 @@ enum TypedRValue<V> {
 }
 
 impl<V> TypedRValue<V> {
-    fn get_type(&self, ctx: &dyn TypecheckCtx<V>) -> Result<SimpleType, String> {
+    fn get_type<C: TypecheckCtx<V>>(&self, ctx: &C) -> Result<SimpleType, String> {
         match self {
             Self::Copy(lval) => lval.get_type(ctx),
             Self::ConstWord(_) => Ok(SimpleType::Word),
@@ -331,6 +418,12 @@ impl<V> TypedRValue<V> {
                 Ok(SimpleType::Word)
             }
         }
+    }
+    fn compile_word_at<C: CompileCtx<V>>(&self, ix: usize, ctx: &C) -> Result<VMWordRValue, String> {
+        Err("not implemented".to_string())
+    }
+    fn compile_ptr_at<C: CompileCtx<V>>(&self, ix: usize, ctx: &C) -> Result<VMPtrRValue<V>, String> {
+        Err("not implemented".to_string())
     }
 }
 

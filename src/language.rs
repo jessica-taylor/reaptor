@@ -80,15 +80,15 @@ pub struct Globals(Vars);
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 pub enum VMWordLValue {
-    Local(VMWordRValue),
-    Global(VMWordRValue),
+    Local(Box<VMWordRValue>),
+    Global(Box<VMWordRValue>),
     Index(Box<VMPtrLValue>, Box<VMWordRValue>),
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 pub enum VMPtrLValue {
-    Local(VMWordRValue),
-    Global(VMWordRValue),
+    Local(Box<VMWordRValue>),
+    Global(Box<VMWordRValue>),
     Index(Box<VMPtrLValue>, Box<VMWordRValue>),
 }
 
