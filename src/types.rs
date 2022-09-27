@@ -238,16 +238,16 @@ impl SimpleType {
 }
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
-enum TypedLValue {
+enum TypedLValue<V> {
     Local(SimpleType, TypedValueOffset),
     Global(SimpleType, TypedValueOffset),
-    TupleIndex(SimpleType, Box<TypedLValue>, usize),
-    ArrayIndex(SimpleType, Box<TypedRValue>),
-    UnionIndex(SimpleType, Box<TypedLValue>, usize),
-    DerefPtr(SimpleType, Box<TypedLValue>),
+    TupleIndex(SimpleType, Box<TypedLValue<V>>, usize),
+    ArrayIndex(SimpleType, Box<TypedRValue<V>>),
+    UnionIndex(SimpleType, Box<TypedLValue<V>>, usize),
+    DerefPtr(SimpleType, Box<TypedLValue<V>>),
 }
 
-impl TypedLValue {
+impl<V> TypedLValue<V> {
     fn get_type(&self) -> Result<&SimpleType, String> {
         match self {
             TypedLValue::Local(t, _) => Ok(t),
@@ -266,17 +266,17 @@ impl TypedLValue {
 }
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
-enum TypedRValue {
-    Copy(Box<TypedLValue>),
-    Clone(Box<TypedLValue>),
-    PtrTag(Box<TypedLValue>),
-    PtrLengthWord(Box<TypedLValue>),
-    PtrLengthPtr(Box<TypedLValue>),
-    Alloc(Box<TypedRValue>, Box<TypedRValue>, Box<TypedRValue>), // ptr type, length word, length ptr
-    Closure(usize, usize, Vec<(TypedValueOffset, TypedRValue)>), // module, function, args, rets, curries
+enum TypedRValue<V> {
+    Copy(Box<TypedLValue<V>>),
+    Clone(Box<TypedLValue<V>>),
+    PtrTag(Box<TypedLValue<V>>),
+    PtrLengthWord(Box<TypedLValue<V>>),
+    PtrLengthPtr(Box<TypedLValue<V>>),
+    Alloc(Box<TypedRValue<V>>, Box<TypedRValue<V>>, Box<TypedRValue<V>>), // ptr type, length word, length ptr
+    FunPtr(V, V), // module, function
 }
 
-impl TypedRValue {
+impl<V> TypedRValue<V> {
     fn get_type(&self) -> Result<&SimpleType, String> {
         match self {
             TypedRValue::Copy(lval) => lval.get_type(),
@@ -299,21 +299,16 @@ impl TypedRValue {
                 }
                 Ok(&SimpleType::Ptr)
             },
-            TypedRValue::Closure(_, _, curries) => {
-                for (offset, curry) in curries.iter() {
-                    curry.get_type()?;
-                }
-                Ok(&SimpleType::Ptr)
-            }
+            TypedRValue::FunPtr(_, _) => Ok(&SimpleType::Ptr),
         }
     }
 }
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
-enum TypedStatement {
-    Assign(TypedLValue, TypedRValue),
-    Swap(TypedLValue, TypedLValue),
-    Call(usize, usize, Vec<TypedLValue>, Vec<TypedLValue>), // module, function, args, returns
-    CallPtr(TypedLValue, Vec<TypedLValue>, Vec<TypedLValue>),
-    Return(Vec<TypedLValue>),
+enum TypedStatement<V> {
+    Assign(TypedLValue<V>, TypedRValue<V>),
+    Swap(TypedLValue<V>, TypedLValue<V>),
+    Call(V, V, Vec<TypedLValue<V>>, Vec<TypedLValue<V>>), // module, function, args, returns
+    CallPtr(TypedLValue<V>, Vec<TypedLValue<V>>, Vec<TypedLValue<V>>),
+    Return(Vec<TypedLValue<V>>),
 }
