@@ -228,7 +228,7 @@ struct ProcedureInterpreter<'a> {
 
 struct ModuleInterpreter<'a> {
     module: &'a VMModule<usize>,
-    procedures: Vec<ProcedureInterpreter<'a>>,
+    stack: Vec<ProcedureInterpreter<'a>>,
     globals: IValues,
 }
 
@@ -293,7 +293,7 @@ impl<'a> ProcedureInterpreter<'a> {
                 if *module_idx >= lib.modules.len() {
                     return Err("invalid module index".to_string());
                 }
-                if *procedure_idx >= lib.modules[*module_idx].procedures.len() {
+                if *procedure_idx >= lib.modules[*module_idx].module.procedures.len() {
                     return Err("invalid procedure index".to_string());
                 }
                 Ok(PtrIValue::Fun(*module_idx, *procedure_idx))
