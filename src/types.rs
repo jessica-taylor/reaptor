@@ -269,6 +269,7 @@ impl<V> TypedLValue<V> {
 enum TypedRValue<V> {
     Copy(Box<TypedLValue<V>>),
     Clone(Box<TypedLValue<V>>),
+    ConstWord(u64),
     PtrTag(Box<TypedLValue<V>>),
     PtrLengthWord(Box<TypedLValue<V>>),
     PtrLengthPtr(Box<TypedLValue<V>>),
@@ -281,6 +282,7 @@ impl<V> TypedRValue<V> {
         match self {
             TypedRValue::Copy(lval) => lval.get_type(),
             TypedRValue::Clone(lval) => lval.get_type(),
+            TypedRValue::ConstWord(_) => Ok(&SimpleType::Word),
             TypedRValue::PtrTag(lval) | TypedRValue::PtrLengthWord(lval) | TypedRValue::PtrLengthPtr(lval) => {
                 if lval.get_type()? != &SimpleType::Ptr {
                     return Err("bad pointer type".to_string());
