@@ -94,18 +94,18 @@ fn bool_to_word(b: bool) -> WordIValue {
     WordIValue((b as u64) * u64::MAX)
 }
 
-fn eval_word_binop(op: WordBinOp, lhs: WordIValue, rhs: WordIValue) -> WordIValue {
-    match op {
+fn eval_word_binop(op: WordBinOp, lhs: WordIValue, rhs: WordIValue) -> Result<WordIValue, String> {
+    Ok(match op {
         WordBinOp::Add(signed, checked) => {
             if signed {
                 if checked {
-                    WordIValue((lhs.0 as i64).checked_add(rhs.0 as i64).unwrap() as u64)
+                    WordIValue((lhs.0 as i64).checked_add(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
                 } else {
                     WordIValue((lhs.0 as i64).wrapping_add(rhs.0 as i64) as u64)
                 }
             } else {
                 if checked {
-                    WordIValue(lhs.0.checked_add(rhs.0).unwrap())
+                    WordIValue(lhs.0.checked_add(rhs.0).ok_or("overflow".to_string())?)
                 } else {
                     WordIValue(lhs.0.wrapping_add(rhs.0))
                 }
@@ -114,13 +114,13 @@ fn eval_word_binop(op: WordBinOp, lhs: WordIValue, rhs: WordIValue) -> WordIValu
         WordBinOp::Sub(signed, checked) => {
             if signed {
                 if checked {
-                    WordIValue((lhs.0 as i64).checked_sub(rhs.0 as i64).unwrap() as u64)
+                    WordIValue((lhs.0 as i64).checked_sub(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
                 } else {
                     WordIValue((lhs.0 as i64).wrapping_sub(rhs.0 as i64) as u64)
                 }
             } else {
                 if checked {
-                    WordIValue(lhs.0.checked_sub(rhs.0).unwrap())
+                    WordIValue(lhs.0.checked_sub(rhs.0).ok_or("overflow".to_string())?)
                 } else {
                     WordIValue(lhs.0.wrapping_sub(rhs.0))
                 }
@@ -129,13 +129,13 @@ fn eval_word_binop(op: WordBinOp, lhs: WordIValue, rhs: WordIValue) -> WordIValu
         WordBinOp::Mul(signed, checked) => {
             if signed {
                 if checked {
-                    WordIValue((lhs.0 as i64).checked_mul(rhs.0 as i64).unwrap() as u64)
+                    WordIValue((lhs.0 as i64).checked_mul(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
                 } else {
                     WordIValue((lhs.0 as i64).wrapping_mul(rhs.0 as i64) as u64)
                 }
             } else {
                 if checked {
-                    WordIValue(lhs.0.checked_mul(rhs.0).unwrap())
+                    WordIValue(lhs.0.checked_mul(rhs.0).ok_or("overflow".to_string())?)
                 } else {
                     WordIValue(lhs.0.wrapping_mul(rhs.0))
                 }
@@ -144,13 +144,13 @@ fn eval_word_binop(op: WordBinOp, lhs: WordIValue, rhs: WordIValue) -> WordIValu
         WordBinOp::Div(signed, checked) => {
             if signed {
                 if checked {
-                    WordIValue((lhs.0 as i64).checked_div(rhs.0 as i64).unwrap() as u64)
+                    WordIValue((lhs.0 as i64).checked_div(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
                 } else {
                     WordIValue((lhs.0 as i64).wrapping_div(rhs.0 as i64) as u64)
                 }
             } else {
                 if checked {
-                    WordIValue(lhs.0.checked_div(rhs.0).unwrap())
+                    WordIValue(lhs.0.checked_div(rhs.0).ok_or("overflow".to_string())?)
                 } else {
                     WordIValue(lhs.0.wrapping_div(rhs.0))
                 }
@@ -159,13 +159,13 @@ fn eval_word_binop(op: WordBinOp, lhs: WordIValue, rhs: WordIValue) -> WordIValu
         WordBinOp::Mod(signed, checked) => {
             if signed {
                 if checked {
-                    WordIValue((lhs.0 as i64).checked_rem(rhs.0 as i64).unwrap() as u64)
+                    WordIValue((lhs.0 as i64).checked_rem(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
                 } else {
                     WordIValue((lhs.0 as i64).wrapping_rem(rhs.0 as i64) as u64)
                 }
             } else {
                 if checked {
-                    WordIValue(lhs.0.checked_rem(rhs.0).unwrap())
+                    WordIValue(lhs.0.checked_rem(rhs.0).ok_or("overflow".to_string())?)
                 } else {
                     WordIValue(lhs.0.wrapping_rem(rhs.0))
                 }
@@ -206,7 +206,7 @@ fn eval_word_binop(op: WordBinOp, lhs: WordIValue, rhs: WordIValue) -> WordIValu
                 bool_to_word(lhs.0 >= rhs.0)
             }
         }
-    }
+    })
 }
 
 
@@ -243,143 +243,102 @@ impl<'a> ProcedureInterpreter<'a> {
             locals,
         }
     }
-    fn eval_word_rvalue(&self, lib: &LibraryInterpreter<'a>, module: &ModuleInterpreter<'a>, rvalue: &VMWordRValue) -> WordIValue {
+    fn eval_word_rvalue(&mut self, lib: &LibraryInterpreter<'a>, module: &mut ModuleInterpreter<'a>, rvalue: &VMWordRValue) -> Result<WordIValue, String> {
         match rvalue {
-            VMWordRValue::Const(v) => WordIValue(*v),
-            VMWordRValue::Copy(lval) => self.eval_word_lvalue(lib, module, lval),
+            VMWordRValue::Const(v) => Ok(WordIValue(*v)),
+            VMWordRValue::Copy(lval) => Ok(self.eval_word_lvalue(lib, module, lval)?.get()),
             VMWordRValue::PtrTag(lval) => {
-                let ptr = self.eval_ptr_lvalue(lib, module, lval);
-                match ptr {
+                let ptr = self.eval_ptr_lvalue(lib, module, lval)?.get();
+                Ok(match ptr {
                     PtrIValue::Null => WordIValue(0),
                     PtrIValue::Fun(_, _) => WordIValue(1),
                     PtrIValue::Rc(_) => WordIValue(2),
-                }
+                })
             },
             VMWordRValue::PtrLengthWord(lval) =>  {
-                let ptr = self.eval_ptr_lvalue(lib, module, lval);
-                match ptr {
+                let ptr = self.eval_ptr_lvalue(lib, module, lval)?.get();
+                Ok(match ptr {
                     PtrIValue::Null => WordIValue(0),
                     PtrIValue::Fun(_, _) => WordIValue(0),
                     PtrIValue::Rc(rc) => WordIValue(rc.borrow().words.len() as u64),
-                }
+                })
             },
             VMWordRValue::PtrLengthPtr(lval) => {
-                let ptr = self.eval_ptr_lvalue(lib, module, lval);
-                match ptr {
+                let ptr = self.eval_ptr_lvalue(lib, module, lval)?.get();
+                Ok(match ptr {
                     PtrIValue::Null => WordIValue(0),
                     PtrIValue::Fun(_, _) => WordIValue(0),
                     PtrIValue::Rc(rc) => WordIValue(rc.borrow().ptrs.len() as u64),
-                }
+                })
             },
             VMWordRValue::UnOp(op, rhs) => {
-                let rhs = self.eval_word_rvalue(lib, module, rhs);
-                eval_word_unop(*op, rhs)
+                let rhs = self.eval_word_rvalue(lib, module, rhs)?;
+                Ok(eval_word_unop(*op, rhs))
             },
             VMWordRValue::BinOp(op, lhs, rhs) => {
-                let lhs = self.eval_word_rvalue(lib, module, lhs);
-                let rhs = self.eval_word_rvalue(lib, module, rhs);
+                let lhs = self.eval_word_rvalue(lib, module, lhs)?;
+                let rhs = self.eval_word_rvalue(lib, module, rhs)?;
                 eval_word_binop(*op, lhs, rhs)
             },
         }
     }
-    fn eval_ptr_rvalue(&self, lib: &LibraryInterpreter<'a>, module: &ModuleInterpreter<'a>, rvalue: &VMPtrRValue<usize>) -> PtrIValue {
+    fn eval_ptr_rvalue(&mut self, lib: &LibraryInterpreter<'a>, module: &mut ModuleInterpreter<'a>, rvalue: &VMPtrRValue<usize>) -> Result<PtrIValue, String> {
         match rvalue {
-            VMPtrRValue::Null => PtrIValue::Null,
-            VMPtrRValue::Copy(lval) => self.eval_ptr_lvalue(lib, module, lval).clone(),
+            VMPtrRValue::Null => Ok(PtrIValue::Null),
+            VMPtrRValue::Copy(lval) => Ok(self.eval_ptr_lvalue(lib, module, lval)?.get()),
             VMPtrRValue::FunPtr(module_idx, procedure_idx) => {
                 if *module_idx >= lib.modules.len() {
-                    panic!("invalid module index");
+                    return Err("invalid module index".to_string());
                 }
                 if *procedure_idx >= lib.modules[*module_idx].procedures.len() {
-                    panic!("invalid procedure index");
+                    return Err("invalid procedure index".to_string());
                 }
-                PtrIValue::Fun(*module_idx, *procedure_idx)
+                Ok(PtrIValue::Fun(*module_idx, *procedure_idx))
             },
         }
     }
-    fn eval_word_lvalue(&self, lib: &LibraryInterpreter<'a>, module: &ModuleInterpreter<'a>, lvalue: &VMWordLValue) -> WordIValue {
+    fn eval_word_lvalue<'b>(&'b mut self, lib: &'b LibraryInterpreter<'a>, module: &'b mut ModuleInterpreter<'a>, lvalue: &VMWordLValue) -> Result<WordIRef<'b>, String> {
         match lvalue {
             VMWordLValue::Local(idx) => {
-                let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx);
-                self.locals.words[ix as usize]
+                let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx)?;
+                Ok(WordIRef::Direct(&mut self.locals.words[ix as usize]))
             },
             VMWordLValue::Global(idx) => {
-                let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx);
-                module.globals.words[ix as usize]
+                let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx)?;
+                Ok(WordIRef::Direct(&mut module.globals.words[ix as usize]))
             },
             VMWordLValue::Index(lval, idx) => {
-                let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx);
-                let ptr = self.eval_ptr_lvalue(lib, module, lval);
+                let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx)?;
+                let ptr = self.eval_ptr_lvalue(lib, module, lval)?.get();
                 match ptr {
-                    PtrIValue::Null => panic!("null pointer"),
-                    PtrIValue::Fun(_, _) => panic!("function pointer"),
-                    PtrIValue::Rc(rc) => rc.borrow().words[ix as usize],
+                    PtrIValue::Null => Err("null pointer".to_string()),
+                    PtrIValue::Fun(_, _) => Err("function pointer".to_string()),
+                    PtrIValue::Rc(rc) => Ok(WordIRef::Rc(rc.clone(), ix as usize))
                 }
             },
         }
     }
-    fn eval_word_lvalue_mut<'b>(&'b mut self, lib: &'b mut LibraryInterpreter<'a>, module: &'b mut ModuleInterpreter<'a>, lvalue: &VMWordLValue) -> WordIRef<'b> {
-        match lvalue {
-            VMWordLValue::Local(idx) => {
-                let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx);
-                WordIRef::Direct(&mut self.locals.words[ix as usize])
-            },
-            VMWordLValue::Global(idx) => {
-                let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx);
-                WordIRef::Direct(&mut module.globals.words[ix as usize])
-            },
-            VMWordLValue::Index(lval, idx) => {
-                let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx);
-                let ptr = self.eval_ptr_lvalue(lib, module, lval);
-                match ptr {
-                    PtrIValue::Null => panic!("null pointer"),
-                    PtrIValue::Fun(_, _) => panic!("function pointer"),
-                    PtrIValue::Rc(rc) => WordIRef::Rc(rc.clone(), ix as usize)
-                }
-            },
-        }
-    }
-    fn eval_ptr_lvalue(&self, lib: &LibraryInterpreter<'a>, module: &ModuleInterpreter<'a>, lvalue: &VMPtrLValue) -> PtrIValue {
+    fn eval_ptr_lvalue<'b>(&'b mut self, lib: &'b LibraryInterpreter<'a>, module: &'b mut ModuleInterpreter<'a>, lvalue: &VMPtrLValue) -> Result<PtrIRef<'b>, String> {
         match lvalue {
             VMPtrLValue::Local(idx) => {
-                let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx);
-                self.locals.ptrs[ix as usize].clone()
+                let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx)?;
+                Ok(PtrIRef::Direct(&mut self.locals.ptrs[ix as usize]))
             },
             VMPtrLValue::Global(idx) => {
-                let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx);
-                module.globals.ptrs[ix as usize].clone()
+                let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx)?;
+                Ok(PtrIRef::Direct(&mut module.globals.ptrs[ix as usize]))
             },
             VMPtrLValue::Index(lval, idx) => {
-                let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx);
-                let ptr = self.eval_ptr_lvalue(lib, module, lval);
+                let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx)?;
+                let ptr = self.eval_ptr_lvalue(lib, module, lval)?.get();
                 match ptr {
-                    PtrIValue::Null => panic!("null pointer"),
-                    PtrIValue::Fun(_, _) => panic!("function pointer"),
-                    PtrIValue::Rc(rc) => rc.borrow().ptrs[ix as usize].clone(),
+                    PtrIValue::Null => Err("null pointer".to_string()),
+                    PtrIValue::Fun(_, _) => Err("function pointer".to_string()),
+                    PtrIValue::Rc(rc) => Ok(PtrIRef::Rc(rc.clone(), ix as usize))
                 }
             },
         }
     }
-    fn eval_ptr_lvalue_mut<'b>(&'b mut self, lib: &'b mut LibraryInterpreter<'b>, module: &'b mut ModuleInterpreter<'b>, lvalue: &VMPtrLValue) -> PtrIRef<'b> {
-        match lvalue {
-            VMPtrLValue::Local(idx) => {
-                let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx);
-                PtrIRef::Direct(&mut self.locals.ptrs[ix as usize])
-            },
-            VMPtrLValue::Global(idx) => {
-                let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx);
-                PtrIRef::Direct(&mut module.globals.ptrs[ix as usize])
-            },
-            VMPtrLValue::Index(lval, idx) => {
-                let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx);
-                let ptr = self.eval_ptr_lvalue(lib, module, lval);
-                match ptr {
-                    PtrIValue::Null => panic!("null pointer"),
-                    PtrIValue::Fun(_, _) => panic!("function pointer"),
-                    PtrIValue::Rc(rc) => PtrIRef::Rc(rc.clone(), ix as usize)
-                }
-            },
-        }
+    fn eval_statement(&mut self, lib: &LibraryInterpreter<'a>, module: &mut ModuleInterpreter<'a>, stmt: &VMStatement<usize>) {
     }
-
 }
