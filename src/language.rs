@@ -24,10 +24,32 @@ pub enum VMPtrType {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone, Copy)]
-pub struct Counts {
-    pub words: usize,
-    pub ptrs: usize
+pub struct VMTypeIndexed<T> {
+    pub words: T,
+    pub ptrs: T,
 }
+
+impl<T> ops::Index<VMType> for VMTypeIndexed<T> {
+    type Output = T;
+
+    fn index(&self, index: VMType) -> &Self::Output {
+        match index {
+            VMType::Word => &self.words,
+            VMType::Ptr => &self.ptrs
+        }
+    }
+}
+
+impl<T> ops::IndexMut<VMType> for VMTypeIndexed<T> {
+    fn index_mut(&mut self, index: VMType) -> &mut Self::Output {
+        match index {
+            VMType::Word => &mut self.words,
+            VMType::Ptr => &mut self.ptrs
+        }
+    }
+}
+
+pub type Counts = VMTypeIndexed<usize>;
 
 impl Counts {
     pub fn zero() -> Counts {
@@ -57,11 +79,7 @@ impl ops::Sub for Counts {
     }
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-pub struct Vars {
-    pub words: Vec<usize>,
-    pub ptrs: Vec<usize>,
-}
+type Vars = VMTypeIndexed<Vec<usize>>;
 
 impl Vars {
     pub fn count(&self) -> Counts {
