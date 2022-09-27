@@ -1,90 +1,311 @@
 use std::collections::BTreeMap;
+use std::ops;
 
 use serde::{Deserialize, Serialize};
+
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Serialize, Deserialize)]
+enum Offset {
+    Finite(usize),
+    Infinite,
+}
+
+impl Offset {
+    fn zero() -> Offset {
+        Offset::Finite(0)
+    }
+    fn is_finite(&self) -> bool {
+        match self {
+            Offset::Finite(_) => true,
+            Offset::Infinite => false,
+        }
+    }
+    fn add_checked(&self, other: &Offset) -> Result<Offset, String> {
+        match (self, other) {
+            (Offset::Finite(a), Offset::Finite(b)) => Ok(Offset::Finite(a.checked_add(*b).ok_or("overflow")?)),
+            (Offset::Finite(a), Offset::Infinite) => Ok(Offset::Infinite),
+            (Offset::Infinite, Offset::Finite(0)) => Ok(Offset::Infinite),
+            _ => Err("offset addition fail: infinite + non-zero".to_string()),
+        }
+    }
+    fn mul_checked(&self, other: &Offset) -> Result<Offset, String> {
+        match (self, other) {
+            (Offset::Finite(a), Offset::Finite(b)) => Ok(Offset::Finite(a.checked_mul(*b).ok_or("overflow")?)),
+            (Offset::Finite(a), Offset::Infinite) => {
+                if *a == 0 {
+                    Ok(Offset::Finite(0))
+                } else {
+                    Ok(Offset::Infinite)
+                }
+            }
+            (Offset::Infinite, Offset::Finite(a)) => {
+                if *a == 0 {
+                    Ok(Offset::Finite(0))
+                } else if *a == 1 {
+                    Ok(Offset::Infinite)
+                } else {
+                    Err("offset multiplication fail: infinite * >1".to_string())
+                }
+            }
+            _ => Err("offset multiplication fail: infinite * infinite".to_string()),
+        }
+    }
+}
+
+impl ops::Mul<usize> for Offset {
+    type Output = Offset;
+    fn mul(self, rhs: usize) -> Offset {
+        match self {
+            Offset::Finite(a) => Offset::Finite(a * rhs),
+            Offset::Infinite => Offset::Infinite,
+        }
+    }
+}
+
+impl PartialOrd for Offset {
+    fn partial_cmp(&self, other: &Offset) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Offset {
+    fn cmp(&self, other: &Offset) -> std::cmp::Ordering {
+        match (self, other) {
+            (Offset::Finite(a), Offset::Finite(b)) => a.cmp(b),
+            (Offset::Infinite, Offset::Infinite) => std::cmp::Ordering::Equal,
+            (Offset::Infinite, Offset::Finite(_)) => std::cmp::Ordering::Greater,
+            (Offset::Finite(_), Offset::Infinite) => std::cmp::Ordering::Less,
+        }
+    }
+}
+
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Serialize, Deserialize)]
+struct TypedValueOffset {
+    words: Offset,
+    ptrs: Offset,
+}
+
+impl TypedValueOffset {
+    fn zero() -> Self {
+        Self {
+            words: Offset::zero(),
+            ptrs: Offset::zero(),
+        }
+    }
+    fn is_finite(&self) -> bool {
+        self.words.is_finite() && self.ptrs.is_finite()
+    }
+    fn add_checked(&self, other: &TypedValueOffset) -> Result<TypedValueOffset, String> {
+        Ok(TypedValueOffset {
+            words: self.words.add_checked(&other.words)?,
+            ptrs: self.ptrs.add_checked(&other.ptrs)?,
+        })
+    }
+    fn max(&self, other: &TypedValueOffset) -> TypedValueOffset {
+        TypedValueOffset {
+            words: std::cmp::max(self.words, other.words),
+            ptrs: std::cmp::max(self.ptrs, other.ptrs),
+        }
+    }
+    fn mul_checked(&self, other: &TypedValueOffset) -> Result<TypedValueOffset, String> {
+        Ok(TypedValueOffset {
+            words: self.words.mul_checked(&other.words)?,
+            ptrs: self.ptrs.mul_checked(&other.ptrs)?,
+        })
+    }
+    fn mul_offset_checked(&self, other: &Offset) -> Result<TypedValueOffset, String> {
+        Ok(TypedValueOffset {
+            words: self.words.mul_checked(other)?,
+            ptrs: self.ptrs.mul_checked(other)?,
+        })
+    }
+}
+
+impl ops::Mul<usize> for TypedValueOffset {
+    type Output = TypedValueOffset;
+    fn mul(self, rhs: usize) -> TypedValueOffset {
+        TypedValueOffset {
+            words: self.words * rhs,
+            ptrs: self.ptrs * rhs,
+        }
+    }
+}
+
+
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 enum SimpleType {
     Word,
     Ptr,
     Tuple(Vec<SimpleType>),
-    Array(usize, Box<SimpleType>),
+    Array(Offset, Box<SimpleType>),
     Union(Vec<SimpleType>),
 }
 
 impl SimpleType {
-    fn size_words(&self) -> usize {
+    fn size(&self) -> Result<TypedValueOffset, String> {
         match self {
-            SimpleType::Word => 1,
-            SimpleType::Ptr => 0,
-            SimpleType::Tuple(t) => t.iter().map(|x| x.size_words()).sum(),
-            SimpleType::Array(n, t) => n * t.size_words(),
-            SimpleType::Union(t) => t.iter().map(|x| x.size_words()).max().unwrap(),
+            SimpleType::Word => Ok(TypedValueOffset {
+                words: Offset::Finite(1),
+                ptrs: Offset::Finite(0),
+            }),
+            SimpleType::Ptr => Ok(TypedValueOffset {
+                words: Offset::Finite(0),
+                ptrs: Offset::Finite(1),
+            }),
+            SimpleType::Tuple(t) => {
+                let mut off = TypedValueOffset::zero();
+                for elem in t {
+                    off = off.add_checked(&elem.size()?)?;
+                }
+                Ok(off)
+            },
+            SimpleType::Array(len, t) => {
+                t.size()?.mul_offset_checked(len)
+            },
+            SimpleType::Union(t) => {
+                let mut off = TypedValueOffset::zero();
+                for elem in t {
+                    off = off.max(&elem.size()?);
+                }
+                Ok(off)
+            }
         }
-    }
-    fn size_ptrs(&self) -> usize {
-        match self {
-            SimpleType::Word => 0,
-            SimpleType::Ptr => 1,
-            SimpleType::Tuple(t) => t.iter().map(|x| x.size_ptrs()).sum(),
-            SimpleType::Array(n, t) => n * t.size_ptrs(),
-            SimpleType::Union(t) => t.iter().map(|x| x.size_ptrs()).max().unwrap(),
-        }
+
     }
 }
 
-enum SimpleTypeIndex {
+enum SimpleTypeIndex<I> {
     This,
-    TupleElem(usize, Box<SimpleTypeIndex>),
-    ArrayElem(usize, Box<SimpleTypeIndex>),
-    UnionElem(usize, Box<SimpleTypeIndex>),
+    TupleElem(usize, Box<SimpleTypeIndex<I>>),
+    ArrayElem(I, Box<SimpleTypeIndex<I>>),
+    UnionElem(usize, Box<SimpleTypeIndex<I>>),
 }
+
+impl<I> SimpleTypeIndex<I> {
+    fn mapcat<I2>(&self, f: &mut dyn FnMut(&I) -> Result<I2, String>) -> Result<SimpleTypeIndex<I2>, String> {
+        Ok(match self {
+            SimpleTypeIndex::This => SimpleTypeIndex::This,
+            SimpleTypeIndex::TupleElem(i, idx) => SimpleTypeIndex::TupleElem(*i, Box::new(idx.mapcat(f)?)),
+            SimpleTypeIndex::ArrayElem(i, idx) => SimpleTypeIndex::ArrayElem(f(i)?, Box::new(idx.mapcat(f)?)),
+            SimpleTypeIndex::UnionElem(i, idx) => SimpleTypeIndex::UnionElem(*i, Box::new(idx.mapcat(f)?)),
+        })
+    }
+}
+
 
 impl SimpleType {
-    fn index(&self, ix: &SimpleTypeIndex) -> Option<&SimpleType> {
+    fn index<I>(&self, ix: &SimpleTypeIndex<I>) -> Result<&SimpleType, String> {
         match (self, ix) {
-            (_, SimpleTypeIndex::This) => Some(self),
-            (SimpleType::Tuple(t), SimpleTypeIndex::TupleElem(i, rest)) => t.get(*i)?.index(rest.as_ref()),
-            (SimpleType::Array(ref n, t), SimpleTypeIndex::ArrayElem(ref i, rest)) => {
-                if i < n {
-                    t.index(rest.as_ref())
-                } else {
-                    None
-                }
+            (_, SimpleTypeIndex::This) => Ok(self),
+            (SimpleType::Tuple(t), SimpleTypeIndex::TupleElem(i, rest)) => t.get(*i).ok_or("bad tuple index".to_string())?.index(rest.as_ref()),
+            (SimpleType::Array(_, t), SimpleTypeIndex::ArrayElem(_, rest)) => {
+                t.index(rest.as_ref())
             },
-            (SimpleType::Union(t), SimpleTypeIndex::UnionElem(i, rest)) => t.get(*i)?.index(rest.as_ref()),
-            _ => None,
+            (SimpleType::Union(t), SimpleTypeIndex::UnionElem(i, rest)) => t.get(*i).ok_or("bad union index".to_string())?.index(rest.as_ref()),
+            _ => Err("bad index".to_string()),
         }
     }
-    fn index_range(&self, ix: &SimpleTypeIndex) -> Option<((usize, usize), (usize, usize))> {
+    fn index_range(&self, ix: &SimpleTypeIndex<usize>) -> Result<(TypedValueOffset, TypedValueOffset), String> {
         match (self, ix) {
-            (_, SimpleTypeIndex::This) => Some(((0, self.size_words()), (0, self.size_ptrs()))),
+            (_, SimpleTypeIndex::This) => Ok((TypedValueOffset::zero(), self.size()?)),
             (SimpleType::Tuple(t), SimpleTypeIndex::TupleElem(i, rest)) => {
-                let mut word_offset = 0;
-                let mut ptr_offset = 0;
+                let mut offset = TypedValueOffset::zero();
                 for (j, x) in t.iter().enumerate() {
                     if j == *i {
-                        let ((word_start, word_end), (ptr_start, ptr_end)) = x.index_range(rest.as_ref())?;
-                        return Some(((word_start + word_offset, word_end + word_offset), (ptr_start + ptr_offset, ptr_end + ptr_offset)));
+                        let (start, end) = x.index_range(rest.as_ref())?;
+                        return Ok((offset.add_checked(&start)?, offset.add_checked(&end)?))
                     }
-                    word_offset += x.size_words();
-                    ptr_offset += x.size_ptrs();
+                    offset = offset.add_checked(&x.size()?)?;
                 }
-                None
+                Err("bad tuple index".to_string())
             },
-            (SimpleType::Array(n, t), SimpleTypeIndex::ArrayElem(i, rest)) => {
-                if i < n {
-                    let word_offset = i * t.size_words();
-                    let ptr_offset = i * t.size_ptrs();
-                    let ((word_start, word_end), (ptr_start, ptr_end)) = t.index_range(rest.as_ref())?;
-                    Some(((word_start + word_offset, word_end + word_offset), (ptr_start + ptr_offset, ptr_end + ptr_offset)))
+            (SimpleType::Array(len, t), SimpleTypeIndex::ArrayElem(i, rest)) => {
+                if Offset::Finite(*i) < *len {
+                    let offset = t.size()? * *i;
+                    let (start, end) = t.index_range(rest.as_ref())?;
+                    Ok((offset.add_checked(&start)?, offset.add_checked(&end)?))
                 } else {
-                    None
+                    Err("bad array index".to_string())
                 }
             },
             (SimpleType::Union(t), SimpleTypeIndex::UnionElem(i, rest)) => {
-                t.get(*i)?.index_range(rest.as_ref())
+                t.get(*i).ok_or("bad union index".to_string())?.index_range(rest.as_ref())
             },
-            _ => None
+            _ => Err("bad index".to_string())
         }
     }
 }
+
+enum TypedLValue {
+    Local(SimpleType, TypedValueOffset),
+    Global(SimpleType, TypedValueOffset),
+    TupleIndex(SimpleType, Box<TypedLValue>, usize),
+    ArrayIndex(SimpleType, Box<TypedRValue>),
+    UnionIndex(SimpleType, Box<TypedLValue>, usize),
+    PtrIndex(SimpleType, Box<TypedLValue>, SimpleTypeIndex<Box<TypedRValue>>),
+}
+
+impl TypedLValue {
+    fn get_type(&self) -> Result<&SimpleType, String> {
+        match self {
+            TypedLValue::Local(t, _) => Ok(t),
+            TypedLValue::Global(t, _) => Ok(t),
+            TypedLValue::TupleIndex(tup_typ, tup, ix) => tup.get_type()?.index::<usize>(&SimpleTypeIndex::TupleElem(*ix, Box::new(SimpleTypeIndex::This))),
+            TypedLValue::ArrayIndex(arr_typ, arr) => arr.get_type()?.index::<usize>(&SimpleTypeIndex::ArrayElem(0, Box::new(SimpleTypeIndex::This))),
+            TypedLValue::UnionIndex(union_typ, union, ix) => union.get_type()?.index::<usize>(&SimpleTypeIndex::UnionElem(*ix, Box::new(SimpleTypeIndex::This))),
+            TypedLValue::PtrIndex(typ, ptr, ix) => {
+                if ptr.get_type()? != &SimpleType::Ptr {
+                    return Err("bad pointer type".to_string());
+                }
+                ix.mapcat(&mut |word| {
+                    if word.get_type()? != &SimpleType::Word {
+                        return Err("bad index type".to_string());
+                    }
+                    Ok(())
+                })?;
+                typ.index(ix)
+            }
+        }
+    }
+}
+
+enum TypedRValue {
+    Local(SimpleType, TypedValueOffset),
+    Global(SimpleType, TypedValueOffset),
+    TupleIndex(SimpleType, Box<TypedLValue>, usize),
+    ArrayIndex(SimpleType, Box<TypedRValue>),
+    UnionIndex(SimpleType, Box<TypedLValue>, usize),
+    PtrIndex(SimpleType, Box<TypedLValue>, SimpleTypeIndex<Box<TypedRValue>>),
+    PtrTag(Box<TypedLValue>),
+    PtrLengthWord(Box<TypedLValue>),
+    PtrLengthPtr(Box<TypedLValue>),
+    Copy(Box<TypedLValue>),
+    CloneRc(Box<TypedLValue>),
+    Closure(usize, usize, Vec<(usize, usize, TypedRValue)>), // module, function, curries
+}
+
+impl TypedRValue {
+    fn get_type(&self) -> Result<&SimpleType, String> {
+        Err("not implemented".to_string())
+        // match self {
+        //     TypedLValue::Local(t, _) => Ok(t),
+        //     TypedLValue::Global(t, _) => Ok(t),
+        //     TypedLValue::TupleIndex(tup_typ, tup, ix) => tup.get_type()?.index(&SimpleTypeIndex::TupleElem(*ix, Box::new(SimpleTypeIndex::This))),
+        //     TypedLValue::ArrayIndex(arr_typ, arr) => arr.get_type()?.index(&SimpleTypeIndex::ArrayElem(0, Box::new(SimpleTypeIndex::This))),
+        //     TypedLValue::UnionIndex(union_typ, union, ix) => union.get_type()?.index(&SimpleTypeIndex::UnionElem(*ix, Box::new(SimpleTypeIndex::This))),
+        //     TypedLValue::PtrIndex(typ, ptr, ix) => {
+        //         if ptr.get_type()? != &SimpleType::Ptr {
+        //             return Err("bad pointer type".to_string());
+        //         }
+        //         ix.mapcat(&|word| {
+        //             if word.get_type()? != SimpleType::Word {
+        //                 return Err("bad index type".to_string());
+        //             }
+        //             Ok(())
+        //         })?;
+        //         typ.index(ix)
+        //     }
+        // }
+    }
+}
+
