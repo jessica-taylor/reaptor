@@ -66,20 +66,21 @@ struct Globals(Vars);
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 enum VMWordLValue {
-    Local(usize),
-    Global(usize),
+    Local(VMWordRValue),
+    Global(VMWordRValue),
     Index(Box<VMPtrLValue>, Box<VMWordRValue>),
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 enum VMPtrLValue {
-    Local(usize),
-    Global(usize),
+    Local(VMWordRValue),
+    Global(VMWordRValue),
     Index(Box<VMPtrLValue>, Box<VMWordRValue>),
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 enum VMWordRValue {
+    Const(u64),
     Copy(Box<VMPtrLValue>),
     PtrTag(Box<VMPtrLValue>),
     PtrLengthWord(Box<VMPtrLValue>),
