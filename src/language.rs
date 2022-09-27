@@ -90,7 +90,6 @@ enum VMWordRValue {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 enum VMPtrRValue<V> {
     Copy(Box<VMPtrLValue>),
-    CloneRc(Box<VMPtrLValue>),
     FunPtr(V, V), // module, function
 }
 
@@ -98,7 +97,6 @@ impl<V> VMPtrRValue<V> {
     fn map<V2>(self, mapper: &dyn VarMapper<V, V2>) -> Result<VMPtrRValue<V2>, String> {
         Ok(match self {
             VMPtrRValue::Copy(ptr) => VMPtrRValue::Copy(ptr),
-            VMPtrRValue::CloneRc(ptr) => VMPtrRValue::CloneRc(ptr),
             VMPtrRValue::FunPtr(module, function) => {
                 let fun_mod_id = mapper.get_module(&module)?;
                 let fun_proc_id = mapper.get_procedure(&fun_mod_id, &function)?;
@@ -115,6 +113,7 @@ enum VMStatement<V> {
     SetPtr(VMPtrLValue, VMPtrRValue<V>),
     SwapWord(VMWordLValue, VMWordLValue),
     SwapPtr(VMWordLValue, VMPtrLValue),
+    CloneRc(VMPtrLValue, VMPtrLValue), // clone second to first
     Alloc(VMPtrLValue, VMWordRValue),
     Call(V, V, Locals, Locals), // module, function, args, returns
     CallPtr(VMPtrLValue, Locals, Locals),
@@ -137,6 +136,7 @@ impl<V> VMStatement<V> {
             VMStatement::SetWord(a, b) => VMStatement::SetWord(a, b),
             VMStatement::SwapWord(a, b) => VMStatement::SwapWord(a, b),
             VMStatement::SwapPtr(a, b) => VMStatement::SwapPtr(a, b),
+            VMStatement::CloneRc(a, b) => VMStatement::CloneRc(a, b),
             VMStatement::Alloc(a, b) => VMStatement::Alloc(a, b),
             VMStatement::CallPtr(a, b, c) => VMStatement::CallPtr(a, b, c),
             VMStatement::Return(a) => VMStatement::Return(a),
