@@ -242,7 +242,7 @@ enum TypedLValue {
     TupleIndex(SimpleType, Box<TypedLValue>, usize),
     ArrayIndex(SimpleType, Box<TypedRValue>),
     UnionIndex(SimpleType, Box<TypedLValue>, usize),
-    PtrIndex(SimpleType, Box<TypedLValue>, SimpleTypeIndex<Box<TypedRValue>>),
+    DerefPtr(SimpleType, Box<TypedLValue>),
 }
 
 impl TypedLValue {
@@ -253,17 +253,11 @@ impl TypedLValue {
             TypedLValue::TupleIndex(tup_typ, tup, ix) => tup.get_type()?.index::<usize>(&SimpleTypeIndex::TupleElem(*ix, Box::new(SimpleTypeIndex::This))),
             TypedLValue::ArrayIndex(arr_typ, arr) => arr.get_type()?.index::<usize>(&SimpleTypeIndex::ArrayElem(0, Box::new(SimpleTypeIndex::This))),
             TypedLValue::UnionIndex(union_typ, union, ix) => union.get_type()?.index::<usize>(&SimpleTypeIndex::UnionElem(*ix, Box::new(SimpleTypeIndex::This))),
-            TypedLValue::PtrIndex(typ, ptr, ix) => {
+            TypedLValue::DerefPtr(typ, ptr) => {
                 if ptr.get_type()? != &SimpleType::Ptr {
                     return Err("bad pointer type".to_string());
                 }
-                ix.mapcat(&mut |word| {
-                    if word.get_type()? != &SimpleType::Word {
-                        return Err("bad index type".to_string());
-                    }
-                    Ok(())
-                })?;
-                typ.index(ix)
+                Ok(typ)
             }
         }
     }
