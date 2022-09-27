@@ -120,6 +120,15 @@ impl TypedValueOffset {
             ptrs: self.ptrs.mul_checked(other)?,
         })
     }
+    fn to_counts(&self) -> Result<Counts, String> {
+        match (self.words, self.ptrs) {
+            (Offset::Finite(words), Offset::Finite(ptrs)) => Ok(Counts {
+                words,
+                ptrs,
+            }),
+            _ => Err("offset to counts fail: infinite".to_string()),
+        }
+    }
 }
 
 impl ops::Mul<usize> for TypedValueOffset {
@@ -310,16 +319,43 @@ enum TypedStatement<V> {
 }
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
-struct TypedProcedure<V> {
+struct TypedProcedure<V: Ord> {
     name: V,
-    params: Vec<SimpleType>,
-    locals: Vec<SimpleType>,
+    params: BTreeMap<V, SimpleType>,
+    locals: BTreeMap<V, SimpleType>, // must not conflict with params
     returns: Vec<SimpleType>,
     statements: Vec<TypedStatement<V>>,
 }
 
-impl<V: Clone> TypedProcedure<V> {
+impl<V: Clone + Ord> TypedProcedure<V> {
     fn compile(&self) -> Result<VMProcedure<V>, String> {
+
+        let mut var_offsets: BTreeMap<V, TypedValueOffset> = BTreeMap::new();
+        let mut var_types: BTreeMap<V, SimpleType> = BTreeMap::new();
+
+        let mut offset = TypedValueOffset::zero();
+        for (k, v) in &self.params {
+            var_types.insert(k.clone(), v.clone());
+            var_offsets.insert(k.clone(), offset);
+            offset = offset.add_checked(&v.size()?)?;
+        }
+        let param_counts = offset.to_counts();
+
+        for (k, v) in &self.locals {
+            var_types.insert(k.clone(), v.clone());
+            var_offsets.insert(k.clone(), offset);
+            offset = offset.add_checked(&v.size()?)?;
+        }
+        let local_counts = offset.to_counts()? - param_counts?;
+
+        let mut ret_offsets: Vec<TypedValueOffset> = Vec::new();
+        let mut ret_offset = TypedValueOffset::zero();
+        for ret in &self.returns {
+            ret_offsets.push(ret_offset);
+            ret_offset = ret_offset.add_checked(&ret.size()?)?;
+        }
+        let return_counts = ret_offset.to_counts();
+
 
         let mut statements: Vec<VMStatement<V>> = Vec::new();
 
@@ -338,12 +374,12 @@ impl<V: Clone> TypedProcedure<V> {
 }
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
-struct TypedModule<V> {
+struct TypedModule<V: Ord> {
     name: V,
     procedures: Vec<TypedProcedure<V>>,
 }
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
-struct TypedLibrary<V> {
+struct TypedLibrary<V: Ord> {
     modules: Vec<TypedModule<V>>,
 }

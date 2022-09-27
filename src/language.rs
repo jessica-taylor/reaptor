@@ -47,6 +47,17 @@ impl ops::Add for Counts {
     }
 }
 
+impl ops::Sub for Counts {
+    type Output = Counts;
+
+    fn sub(self, other: Counts) -> Counts {
+        Counts {
+            words: self.words - other.words,
+            ptrs: self.ptrs - other.ptrs
+        }
+    }
+}
+
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 pub struct Vars {
     pub words: Vec<usize>,
