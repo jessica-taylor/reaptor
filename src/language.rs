@@ -114,7 +114,7 @@ enum VMStatement<V> {
     SwapWord(VMWordLValue, VMWordLValue),
     SwapPtr(VMWordLValue, VMPtrLValue),
     CloneRc(VMPtrLValue, VMPtrLValue), // clone second to first
-    Alloc(VMPtrLValue, VMWordRValue),
+    Alloc(VMPtrLValue, VMWordRValue, VMWordRValue, VMWordRValue), // dest, tag, length word, length ptr
     Call(V, V, Locals, Locals), // module, function, args, returns
     CallPtr(VMPtrLValue, Locals, Locals),
     Return(Locals)
@@ -137,7 +137,7 @@ impl<V> VMStatement<V> {
             VMStatement::SwapWord(a, b) => VMStatement::SwapWord(a, b),
             VMStatement::SwapPtr(a, b) => VMStatement::SwapPtr(a, b),
             VMStatement::CloneRc(a, b) => VMStatement::CloneRc(a, b),
-            VMStatement::Alloc(a, b) => VMStatement::Alloc(a, b),
+            VMStatement::Alloc(a, b, c, d) => VMStatement::Alloc(a, b, c, d),
             VMStatement::CallPtr(a, b, c) => VMStatement::CallPtr(a, b, c),
             VMStatement::Return(a) => VMStatement::Return(a),
         })
