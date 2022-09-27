@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::marker::PhantomData;
 use std::ops;
 
 use serde::{Deserialize, Serialize};
@@ -93,24 +92,19 @@ pub enum VMPtrLValue {
     Index(Box<VMPtrLValue>, Box<VMWordRValue>),
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum WordUnOp {
     Neg,
     Not,
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum WordBinOp {
-    AddS,
-    AddU,
-    SubS,
-    SubU,
-    MulS,
-    MulU,
-    DivS,
-    DivU,
-    ModS,
-    ModU,
+    Add(bool, bool), // signed, checked
+    Sub(bool, bool),
+    Mul(bool, bool),
+    Div(bool, bool),
+    Mod(bool, bool),
     And,
     Or,
     Xor,
@@ -118,12 +112,10 @@ pub enum WordBinOp {
     Shr,
     Eq,
     Ne,
-    LtS,
-    LtU,
-    LeS,
-    LeU,
-    GtS,
-    GeU,
+    Lt(bool), // signed
+    Le(bool),
+    Gt(bool),
+    Ge(bool),
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]

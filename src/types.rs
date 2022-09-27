@@ -385,12 +385,12 @@ impl<V: Eq + Ord + Clone> AllocSpec<V> {
                     }
                     
                     let tot_words = if let Some(w) = word_addend {
-                        AllocLength::Dynamic(TypedRValue::BinOp(WordBinOp::AddU, Box::new(TypedRValue::ConstWord(words as u64)), Box::new(w)))
+                        AllocLength::Dynamic(TypedRValue::BinOp(WordBinOp::Add(false, true), Box::new(TypedRValue::ConstWord(words as u64)), Box::new(w)))
                     } else {
                         AllocLength::Const(words)
                     };
                     let tot_ptrs = if let Some(p) = ptr_addend {
-                        AllocLength::Dynamic(TypedRValue::BinOp(WordBinOp::AddU, Box::new(TypedRValue::ConstWord(ptrs as u64)), Box::new(p)))
+                        AllocLength::Dynamic(TypedRValue::BinOp(WordBinOp::Add(false, true), Box::new(TypedRValue::ConstWord(ptrs as u64)), Box::new(p)))
                     } else {
                         AllocLength::Const(ptrs)
                     };
@@ -406,12 +406,12 @@ impl<V: Eq + Ord + Clone> AllocSpec<V> {
                         AllocLength::Const(0)
                     } else {
                         // TODO: problem that len is repeated?
-                        AllocLength::Dynamic(TypedRValue::BinOp(WordBinOp::MulU, Box::new(TypedRValue::ConstWord(counts.words as u64)), len.clone()))
+                        AllocLength::Dynamic(TypedRValue::BinOp(WordBinOp::Mul(false, true), Box::new(TypedRValue::ConstWord(counts.words as u64)), len.clone()))
                     };
                     let ptrs = if counts.ptrs == 0 {
                         AllocLength::Const(0)
                     } else {
-                        AllocLength::Dynamic(TypedRValue::BinOp(WordBinOp::MulU, Box::new(TypedRValue::ConstWord(counts.ptrs as u64)), len.clone()))
+                        AllocLength::Dynamic(TypedRValue::BinOp(WordBinOp::Mul(false, true), Box::new(TypedRValue::ConstWord(counts.ptrs as u64)), len.clone()))
                     };
                     Ok((words, ptrs))
                 } else {
