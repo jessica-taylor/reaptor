@@ -552,8 +552,7 @@ enum TypedStatement<V> {
     Assign(TypedLValue<V>, TypedRValue<V>),
     AssignClone(TypedLValue<V>, TypedLValue<V>),
     Swap(TypedLValue<V>, TypedLValue<V>),
-    Alloc(TypedLValue<V>, TypedRValue<V>, SimpleType, AllocSpec<V>), // dest, ptr type, data type,
-                                                                     // spec
+    Alloc(TypedLValue<V>, SimpleType, AllocSpec<V>), // dest, data type, spec
     Call(V, V, Vec<TypedLValue<V>>, Vec<TypedLValue<V>>), // module, function, args, returns
     CallPtr(TypedLValue<V>, Vec<TypedLValue<V>>, Vec<TypedLValue<V>>),
     Return(Vec<TypedLValue<V>>),

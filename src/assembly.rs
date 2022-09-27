@@ -152,10 +152,11 @@ pub enum VMPtrRValue<V> {
     Null,
     Copy(Box<VMPtrLValue>),
     FunPtr(V, V), // module, function
+    Alloc(VMWordRValue, VMWordRValue), // length word, length ptr
 }
 
 impl<V> VMPtrRValue<V> {
-    fn map<V2>(self, mapper: &dyn VarMapper<V, V2>) -> Result<VMPtrRValue<V2>, String> {
+    fn map<V2>(self, mapper: &impl VarMapper<V, V2>) -> Result<VMPtrRValue<V2>, String> {
         Ok(match self {
             VMPtrRValue::Null => VMPtrRValue::Null,
             VMPtrRValue::Copy(ptr) => VMPtrRValue::Copy(ptr),
@@ -164,14 +165,15 @@ impl<V> VMPtrRValue<V> {
                 let fun_proc_id = mapper.get_procedure(&fun_mod_id, &function)?;
                 VMPtrRValue::FunPtr(fun_mod_id, fun_proc_id)
             }
+            VMPtrRValue::Alloc(a, b) => VMPtrRValue::Alloc(a, b),
         })
     }
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-struct VMLValues {
-    words: Vec<VMWordLValue>,
-    ptrs: Vec<VMPtrLValue>,
+pub struct VMLValues {
+    pub words: Vec<VMWordLValue>,
+    pub ptrs: Vec<VMPtrLValue>,
 }
 
 impl VMLValues {
@@ -183,43 +185,58 @@ impl VMLValues {
     }
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
+pub struct VMRValues<V> {
+    pub words: Vec<VMWordRValue>,
+    pub ptrs: Vec<VMPtrRValue<V>>,
+}
+
+impl<V> VMRValues<V> {
+    fn count(&self) -> Counts {
+        Counts {
+            words: self.words.len(),
+            ptrs: self.ptrs.len(),
+        }
+    }
+    fn map<V2>(self, mapper: &impl VarMapper<V, V2>) -> Result<VMRValues<V2>, String> {
+        Ok(VMRValues {
+            words: self.words,
+            ptrs: self.ptrs.into_iter().map(|p| p.map(mapper)).collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+}
+
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 pub enum VMStatement<V> {
     SetWord(VMWordLValue, VMWordRValue),
     SetPtr(VMPtrLValue, VMPtrRValue<V>),
-    SwapWord(VMWordLValue, VMWordLValue),
-    SwapPtr(VMWordLValue, VMPtrLValue),
-    Alloc(VMPtrLValue, VMWordRValue, VMWordRValue, VMWordRValue), // dest, tag, length word, length ptr
-    Call(V, V, VMLValues, Locals), // module, function, args, returns
-    CallPtr(VMPtrLValue, VMLValues, Locals),
-    Return(Locals),
-    If(VMWordRValue, Vec<VMStatement<V>>),
+    Call(V, V, VMLValues, VMRValues<V>), // module, function, returns, args
+    CallPtr(VMPtrLValue, VMLValues, VMRValues<V>), // function, return, args
+    Return(VMRValues<V>),
+    If(VMWordRValue, Box<VMStatement<V>>),
     Block(Vec<VMStatement<V>>), // loop construct, need to continue/break manually
     Continue(usize), // start of block, outermost is 0
     Break(usize)     // end of block, outermost is 0
 }
 
 impl<V> VMStatement<V> {
-    fn map<V2>(self, mapper: &dyn VarMapper<V, V2>) -> Result<VMStatement<V2>, String> {
+    fn map<V2>(self, mapper: &impl VarMapper<V, V2>) -> Result<VMStatement<V2>, String> {
         Ok(match self {
             VMStatement::SetPtr(lvalue, rvalue) => VMStatement::SetPtr(lvalue, rvalue.map(mapper)?),
-            VMStatement::Call(module, function, args, returns) => {
+            VMStatement::Call(module, function, returns, args) => {
                 let fun_module = mapper.get_module(&module)?;
                 let fun_proc = mapper.get_procedure(&fun_module, &function)?;
                 VMStatement::Call(
                     fun_module,
                     fun_proc,
-                    args,
-                    returns)
+                    returns,
+                    args.map(mapper)?)
             },
             VMStatement::SetWord(a, b) => VMStatement::SetWord(a, b),
-            VMStatement::SwapWord(a, b) => VMStatement::SwapWord(a, b),
-            VMStatement::SwapPtr(a, b) => VMStatement::SwapPtr(a, b),
-            VMStatement::Alloc(a, b, c, d) => VMStatement::Alloc(a, b, c, d),
-            VMStatement::CallPtr(a, b, c) => VMStatement::CallPtr(a, b, c),
-            VMStatement::Return(a) => VMStatement::Return(a),
-            VMStatement::If(a, b) => VMStatement::If(a, b.into_iter().map(|s| s.map(mapper)).collect::<Result<Vec<_>, _>>()?),
+            VMStatement::CallPtr(a, b, c) => VMStatement::CallPtr(a, b, c.map(mapper)?),
+            VMStatement::Return(a) => VMStatement::Return(a.map(mapper)?),
+            VMStatement::If(a, b) => VMStatement::If(a, Box::new(b.map(mapper)?)),
             VMStatement::Block(a) => VMStatement::Block(a.into_iter().map(|s| s.map(mapper)).collect::<Result<Vec<_>, _>>()?),
             VMStatement::Continue(a) => VMStatement::Continue(a),
             VMStatement::Break(a) => VMStatement::Break(a),
@@ -237,7 +254,7 @@ pub struct VMProcedure<V> {
 }
 
 impl<V> VMProcedure<V> {
-    fn map<V2>(self, mod_id: &V2, mapper: &dyn VarMapper<V, V2>) -> Result<VMProcedure<V2>, String> {
+    fn map<V2>(self, mod_id: &V2, mapper: &impl VarMapper<V, V2>) -> Result<VMProcedure<V2>, String> {
         let mut statements = Vec::new();
         for stmt in self.statements {
             statements.push(stmt.map(mapper)?);
@@ -260,7 +277,7 @@ pub struct VMModule<V> {
 }
 
 impl<V> VMModule<V> {
-    fn map<V2>(self, mapper: &dyn VarMapper<V, V2>) -> Result<VMModule<V2>, String> {
+    fn map<V2>(self, mapper: &impl VarMapper<V, V2>) -> Result<VMModule<V2>, String> {
         let mod_id = mapper.get_module(&self.name)?;
         let mut procedures = Vec::new();
         for proc in self.procedures {
@@ -292,7 +309,7 @@ pub struct VMLibrary<V> {
 }
 
 impl<V> VMLibrary<V> {
-    fn map<V2>(self, mapper: &dyn VarMapper<V, V2>) -> Result<VMLibrary<V2>, String> {
+    fn map<V2>(self, mapper: &impl VarMapper<V, V2>) -> Result<VMLibrary<V2>, String> {
         let mut modules = Vec::new();
         for module in self.modules {
             modules.push(module.map(mapper)?);

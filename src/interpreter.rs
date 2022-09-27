@@ -43,6 +43,15 @@ struct IValues {
     ptrs: Vec<PtrIValue>,
 }
 
+impl IValues {
+    fn new(counts: &Counts) -> Self {
+        IValues {
+            words: vec![WordIValue::default(); counts.words],
+            ptrs: vec![PtrIValue::default(); counts.ptrs],
+        }
+    }
+}
+
 enum WordIRef<'a> {
     Direct(&'a mut WordIValue),
     Rc(Rc<RefCell<IValues>>, usize),
@@ -213,6 +222,8 @@ fn eval_word_binop(op: WordBinOp, lhs: WordIValue, rhs: WordIValue) -> Result<Wo
 struct ProcedureInterpreter<'a> {
     procedure: &'a VMProcedure<usize>,
     locals: IValues,
+    block_frames: Vec<(&'a Vec<VMStatement<usize>>, usize)>,
+    returns: Option<IValues>,
 }
 
 struct ModuleInterpreter<'a> {
@@ -228,19 +239,11 @@ struct LibraryInterpreter<'a> {
 
 impl<'a> ProcedureInterpreter<'a> {
     fn new(procedure: &'a VMProcedure<usize>) -> Self {
-        let mut locals = IValues {
-            words: Vec::with_capacity(procedure.local_counts.words),
-            ptrs: Vec::with_capacity(procedure.local_counts.ptrs),
-        };
-        for _ in 0..procedure.local_counts.words {
-            locals.words.push(WordIValue(0));
-        }
-        for _ in 0..procedure.local_counts.ptrs {
-            locals.ptrs.push(PtrIValue::Null);
-        }
         Self {
             procedure,
-            locals,
+            locals: IValues::new(&procedure.local_counts),
+            block_frames: vec![(&procedure.statements, 0)],
+            returns: None
         }
     }
     fn eval_word_rvalue(&mut self, lib: &LibraryInterpreter<'a>, module: &mut ModuleInterpreter<'a>, rvalue: &VMWordRValue) -> Result<WordIValue, String> {
@@ -295,6 +298,15 @@ impl<'a> ProcedureInterpreter<'a> {
                 }
                 Ok(PtrIValue::Fun(*module_idx, *procedure_idx))
             },
+            VMPtrRValue::Alloc(len_w, len_p) => {
+                let WordIValue(len_w) = self.eval_word_rvalue(lib, module, len_w)?;
+                let WordIValue(len_p) = self.eval_word_rvalue(lib, module, len_p)?;
+                let rc = Rc::new(RefCell::new(IValues::new(&Counts {
+                    words: len_w as usize,
+                    ptrs: len_p as usize
+                })));
+                Ok(PtrIValue::Rc(rc))
+            },
         }
     }
     fn eval_word_lvalue<'b>(&'b mut self, lib: &'b LibraryInterpreter<'a>, module: &'b mut ModuleInterpreter<'a>, lvalue: &VMWordLValue) -> Result<WordIRef<'b>, String> {
@@ -339,6 +351,56 @@ impl<'a> ProcedureInterpreter<'a> {
             },
         }
     }
-    fn eval_statement(&mut self, lib: &LibraryInterpreter<'a>, module: &mut ModuleInterpreter<'a>, stmt: &VMStatement<usize>) {
+    fn eval_statement(&mut self, lib: &LibraryInterpreter<'a>, module: &mut ModuleInterpreter<'a>, stmt: &'a VMStatement<usize>) -> Result<(), String> {
+        match stmt {
+            VMStatement::SetWord(lval, rval) => {
+                let rval = self.eval_word_rvalue(lib, module, rval)?;
+                let mut lval = self.eval_word_lvalue(lib, module, lval)?;
+                lval.set(rval);
+            },
+            VMStatement::SetPtr(lval, rval) => {
+                let rval = self.eval_ptr_rvalue(lib, module, rval)?;
+                let mut lval = self.eval_ptr_lvalue(lib, module, lval)?;
+                lval.set(rval);
+            },
+            VMStatement::Call(mod_id, fun_id, args, rets) => {
+                // TODO
+            },
+            VMStatement::CallPtr(fun_ptr, args, rets) => {
+                // TODO
+            },
+            VMStatement::Return(rets) => {
+                let mut returns = IValues {
+                    words: Vec::new(),
+                    ptrs: Vec::new(),
+                };
+                for word_rvalue in &rets.words {
+                    returns.words.push(self.eval_word_rvalue(lib, module, word_rvalue)?);
+                }
+                for ptr_rvalue in &rets.ptrs {
+                    returns.ptrs.push(self.eval_ptr_rvalue(lib, module, ptr_rvalue)?);
+                }
+                self.returns = Some(returns);
+            },
+            VMStatement::If(cond, stmt) => {
+                let WordIValue(cond) = self.eval_word_rvalue(lib, module, cond)?;
+                if cond != 0 {
+                    self.eval_statement(lib, module, stmt)?;
+                }
+            },
+            VMStatement::Block(stmts) => {
+                self.block_frames.push((stmts, 0));
+            },
+            VMStatement::Continue(usize) => {
+                self.block_frames.last_mut().unwrap().1 = 0;
+            },
+            VMStatement::Break(usize) => {
+                if self.block_frames.len() == 1 {
+                    return Err("break outside loop".to_string());
+                }
+                self.block_frames.pop();
+            },
+        }
+        Ok(())
     }
 }
