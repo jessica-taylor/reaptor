@@ -3,6 +3,8 @@ use std::ops;
 
 use serde::{Deserialize, Serialize};
 
+use crate::language::{Counts, VMStatement, VMProcedure};
+
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Serialize, Deserialize)]
 enum Offset {
     Finite(usize),
@@ -239,8 +241,8 @@ impl SimpleType {
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
 enum TypedLValue<V> {
-    Local(SimpleType, TypedValueOffset),
-    Global(SimpleType, TypedValueOffset),
+    Local(SimpleType, usize, usize),  // word offset, ptr offset
+    Global(SimpleType, usize, usize), // word offset, ptr offset
     TupleIndex(SimpleType, Box<TypedLValue<V>>, usize),
     ArrayIndex(SimpleType, Box<TypedRValue<V>>),
     UnionIndex(SimpleType, Box<TypedLValue<V>>, usize),
@@ -250,8 +252,8 @@ enum TypedLValue<V> {
 impl<V> TypedLValue<V> {
     fn get_type(&self) -> Result<SimpleType, String> {
         match self {
-            TypedLValue::Local(t, _) => Ok(t.clone()),
-            TypedLValue::Global(t, _) => Ok(t.clone()),
+            TypedLValue::Local(t, _, _) => Ok(t.clone()),
+            TypedLValue::Global(t, _, _) => Ok(t.clone()),
             TypedLValue::TupleIndex(tup_typ, tup, ix) => tup.get_type()?.index::<usize>(&SimpleTypeIndex::TupleElem(*ix, Box::new(SimpleTypeIndex::This))),
             TypedLValue::ArrayIndex(arr_typ, arr) => arr.get_type()?.index::<usize>(&SimpleTypeIndex::ArrayElem(0, Box::new(SimpleTypeIndex::This))),
             TypedLValue::UnionIndex(union_typ, union, ix) => union.get_type()?.index::<usize>(&SimpleTypeIndex::UnionElem(*ix, Box::new(SimpleTypeIndex::This))),
@@ -300,4 +302,43 @@ enum TypedStatement<V> {
     Call(V, V, Vec<TypedLValue<V>>, Vec<TypedLValue<V>>), // module, function, args, returns
     CallPtr(TypedLValue<V>, Vec<TypedLValue<V>>, Vec<TypedLValue<V>>),
     Return(Vec<TypedLValue<V>>),
+}
+
+#[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
+struct TypedProcedure<V> {
+    name: V,
+    params: Vec<SimpleType>,
+    locals: Vec<SimpleType>,
+    returns: Vec<SimpleType>,
+    statements: Vec<TypedStatement<V>>,
+}
+
+impl<V: Clone> TypedProcedure<V> {
+    fn compile(&self) -> Result<VMProcedure<V>, String> {
+
+        let mut statements: Vec<VMStatement<V>> = Vec::new();
+
+        let param_counts = Counts::zero();
+        let local_counts = Counts::zero();
+        let return_counts = Counts::zero();
+
+        Ok(VMProcedure {
+            name: self.name.clone(),
+            param_counts,
+            local_counts,
+            return_counts,
+            statements
+        })
+    }
+}
+
+#[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
+struct TypedModule<V> {
+    name: V,
+    procedures: Vec<TypedProcedure<V>>,
+}
+
+#[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
+struct TypedLibrary<V> {
+    modules: Vec<TypedModule<V>>,
 }

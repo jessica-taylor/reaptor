@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
+use std::ops;
 
 use serde::{Deserialize, Serialize};
 
@@ -10,13 +11,13 @@ trait VarMapper<V1, V2> {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone, Copy)]
-enum VMType {
+pub enum VMType {
     Word,
     Ptr,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone, Copy)]
-enum VMPtrType {
+pub enum VMPtrType {
     Fun,
     Static,
     Box,
@@ -24,62 +25,65 @@ enum VMPtrType {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone, Copy)]
-struct Counts {
-    words: usize,
-    ptrs: usize
+pub struct Counts {
+    pub words: usize,
+    pub ptrs: usize
+}
+
+impl Counts {
+    pub fn zero() -> Counts {
+        Counts { words: 0, ptrs: 0 }
+    }
+}
+
+impl ops::Add for Counts {
+    type Output = Counts;
+
+    fn add(self, other: Counts) -> Counts {
+        Counts {
+            words: self.words + other.words,
+            ptrs: self.ptrs + other.ptrs
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-struct Vars {
-    words: Vec<usize>,
-    ptrs: Vec<usize>,
+pub struct Vars {
+    pub words: Vec<usize>,
+    pub ptrs: Vec<usize>,
 }
 
 impl Vars {
-    fn count(&self) -> Counts {
+    pub fn count(&self) -> Counts {
         Counts {
             words: self.words.len(),
             ptrs: self.ptrs.len(),
         }
     }
-
-    fn is_ascending(&self) -> bool {
-        for i in 0..self.words.len() {
-            if self.words[i] != i {
-                return false;
-            }
-        }
-        for i in 0..self.ptrs.len() {
-            if self.ptrs[i] != i {
-                return false;
-            }
-        }
-        return true;
-    }
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-struct Locals(Vars);
+pub struct Locals(Vars);
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-struct Globals(Vars);
+pub struct Globals(Vars);
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-enum VMWordLValue {
+pub enum VMWordLValue {
     Local(VMWordRValue),
     Global(VMWordRValue),
     Index(Box<VMPtrLValue>, Box<VMWordRValue>),
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-enum VMPtrLValue {
+pub enum VMPtrLValue {
     Local(VMWordRValue),
     Global(VMWordRValue),
     Index(Box<VMPtrLValue>, Box<VMWordRValue>),
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-enum VMWordRValue {
+pub enum VMWordRValue {
     Const(u64),
     Copy(Box<VMPtrLValue>),
     PtrTag(Box<VMPtrLValue>),
@@ -88,7 +92,7 @@ enum VMWordRValue {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-enum VMPtrRValue<V> {
+pub enum VMPtrRValue<V> {
     Copy(Box<VMPtrLValue>),
     FunPtr(V, V), // module, function
 }
@@ -108,7 +112,7 @@ impl<V> VMPtrRValue<V> {
 
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-enum VMStatement<V> {
+pub enum VMStatement<V> {
     SetWord(VMWordLValue, VMWordRValue),
     SetPtr(VMPtrLValue, VMPtrRValue<V>),
     SwapWord(VMWordLValue, VMWordLValue),
@@ -145,12 +149,12 @@ impl<V> VMStatement<V> {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-struct VMProcedure<V> {
-    name: V,
-    local_counts: Counts,
-    param_counts: Counts, // must be <= local_counts
-    return_counts: Counts, // must be <= local_counts
-    statements: Vec<VMStatement<V>>,
+pub struct VMProcedure<V> {
+    pub name: V,
+    pub param_counts: Counts,
+    pub local_counts: Counts,
+    pub return_counts: Counts, // must be <= param_counts + local_counts
+    pub statements: Vec<VMStatement<V>>,
 }
 
 impl<V> VMProcedure<V> {
@@ -170,10 +174,10 @@ impl<V> VMProcedure<V> {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-struct VMModule<V> {
-    name: V,
-    global_counts: Counts,
-    procedures: Vec<VMProcedure<V>>,
+pub struct VMModule<V> {
+    pub name: V,
+    pub global_counts: Counts,
+    pub procedures: Vec<VMProcedure<V>>,
 }
 
 impl<V> VMModule<V> {
@@ -192,7 +196,7 @@ impl<V> VMModule<V> {
 }
 
 impl VMModule<usize> {
-    fn procedures_ascending(&self) -> bool {
+    pub fn procedures_ascending(&self) -> bool {
         for i in 0..self.procedures.len() {
             if self.procedures[i].name != i {
                 return false;
@@ -203,9 +207,9 @@ impl VMModule<usize> {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-struct VMLibrary<V> {
-    modules: Vec<VMModule<V>>,
-    exports: BTreeMap<String, (V, V)>,
+pub struct VMLibrary<V> {
+    pub modules: Vec<VMModule<V>>,
+    pub exports: BTreeMap<String, (V, V)>,
 }
 
 impl<V> VMLibrary<V> {
@@ -287,7 +291,7 @@ impl VarMapper<String, usize> for VarLibraryManager {
     }
 }
 
-fn translate_library_vars(lib: VMLibrary<String>) -> Result<VMLibrary<usize>, String> {
+pub fn translate_library_vars(lib: VMLibrary<String>) -> Result<VMLibrary<usize>, String> {
     let mut lib_manager = VarLibraryManager::new();
     for module in &lib.modules {
         let mut mod_manager = lib_manager.add_module(&module.name);
