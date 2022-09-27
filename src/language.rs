@@ -146,8 +146,8 @@ impl<V> VMStatement<V> {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 struct VMProcedure<V> {
     name: V,
-    locals: Locals,
-    params: Locals,
+    local_counts: Counts,
+    param_counts: Counts, // must be <= local_counts
     return_counts: Counts, // must be <= local_counts
     statements: Vec<VMStatement<V>>,
 }
@@ -160,8 +160,8 @@ impl<V> VMProcedure<V> {
         }
         Ok(VMProcedure {
             name: mapper.get_procedure(mod_id, &self.name)?,
-            locals: self.locals,
-            params: self.params,
+            local_counts: self.local_counts,
+            param_counts: self.param_counts,
             return_counts: self.return_counts,
             statements,
         })
@@ -171,7 +171,7 @@ impl<V> VMProcedure<V> {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 struct VMModule<V> {
     name: V,
-    globals: Globals,
+    global_counts: Counts,
     procedures: Vec<VMProcedure<V>>,
 }
 
@@ -184,7 +184,7 @@ impl<V> VMModule<V> {
         }
         Ok(VMModule {
             name: mod_id,
-            globals: self.globals,
+            global_counts: self.global_counts,
             procedures,
         })
     }
