@@ -241,24 +241,29 @@ impl SimpleType {
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
 enum TypedLValue<V> {
-    Local(SimpleType, usize, usize),  // word offset, ptr offset
-    Global(SimpleType, usize, usize), // word offset, ptr offset
+    Local(V),
+    Global(V),
     TupleIndex(SimpleType, Box<TypedLValue<V>>, usize),
-    ArrayIndex(SimpleType, Box<TypedRValue<V>>),
+    ArrayIndex(SimpleType, Box<TypedLValue<V>>, Box<TypedRValue<V>>),
     UnionIndex(SimpleType, Box<TypedLValue<V>>, usize),
     DerefPtr(SimpleType, Box<TypedLValue<V>>),
 }
 
-impl<V> TypedLValue<V> {
-    fn get_type(&self) -> Result<SimpleType, String> {
+impl<V: Eq + Ord + Clone> TypedLValue<V> {
+    fn get_type(&self, locals: &BTreeMap<V, SimpleType>, globals: &BTreeMap<V, SimpleType>) -> Result<SimpleType, String> {
         match self {
-            TypedLValue::Local(t, _, _) => Ok(t.clone()),
-            TypedLValue::Global(t, _, _) => Ok(t.clone()),
-            TypedLValue::TupleIndex(tup_typ, tup, ix) => tup.get_type()?.index::<usize>(&SimpleTypeIndex::TupleElem(*ix, Box::new(SimpleTypeIndex::This))),
-            TypedLValue::ArrayIndex(arr_typ, arr) => arr.get_type()?.index::<usize>(&SimpleTypeIndex::ArrayElem(0, Box::new(SimpleTypeIndex::This))),
-            TypedLValue::UnionIndex(union_typ, union, ix) => union.get_type()?.index::<usize>(&SimpleTypeIndex::UnionElem(*ix, Box::new(SimpleTypeIndex::This))),
+            TypedLValue::Local(v) => locals.get(v).ok_or("bad local".to_string()).map(|x| x.clone()),
+            TypedLValue::Global(v) => globals.get(v).ok_or("bad global".to_string()).map(|x| x.clone()),
+            TypedLValue::TupleIndex(tup_typ, tup, ix) => tup.get_type(locals, globals)?.index::<usize>(&SimpleTypeIndex::TupleElem(*ix, Box::new(SimpleTypeIndex::This))),
+            TypedLValue::ArrayIndex(arr_typ, arr, ix) => {
+                if ix.get_type(locals, globals)? != SimpleType::Word {
+                    return Err("array index must be a word".to_string());
+                }
+                arr.get_type(locals, globals)?.index::<usize>(&SimpleTypeIndex::ArrayElem(0, Box::new(SimpleTypeIndex::This)))
+            },
+            TypedLValue::UnionIndex(union_typ, union, ix) => union.get_type(locals, globals)?.index::<usize>(&SimpleTypeIndex::UnionElem(*ix, Box::new(SimpleTypeIndex::This))),
             TypedLValue::DerefPtr(typ, ptr) => {
-                if ptr.get_type()? != SimpleType::Ptr {
+                if ptr.get_type(locals, globals)? != SimpleType::Ptr {
                     return Err("bad pointer type".to_string());
                 }
                 Ok(typ.clone())
@@ -277,13 +282,13 @@ enum TypedRValue<V> {
     FunPtr(V, V), // module, function
 }
 
-impl<V> TypedRValue<V> {
-    fn get_type(&self) -> Result<SimpleType, String> {
+impl<V: Eq + Ord + Clone> TypedRValue<V> {
+    fn get_type(&self, locals: &BTreeMap<V, SimpleType>, globals: &BTreeMap<V, SimpleType>) -> Result<SimpleType, String> {
         match self {
-            TypedRValue::Copy(lval) => lval.get_type(),
+            TypedRValue::Copy(lval) => lval.get_type(locals, globals),
             TypedRValue::ConstWord(_) => Ok(SimpleType::Word),
             TypedRValue::PtrTag(lval) | TypedRValue::PtrLengthWord(lval) | TypedRValue::PtrLengthPtr(lval) => {
-                if lval.get_type()? != SimpleType::Ptr {
+                if lval.get_type(locals, globals)? != SimpleType::Ptr {
                     return Err("bad pointer type".to_string());
                 }
                 Ok(SimpleType::Word)
