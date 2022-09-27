@@ -174,6 +174,7 @@ impl SimpleType {
     }
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 enum SimpleTypeIndex<I> {
     This,
     TupleElem(usize, Box<SimpleTypeIndex<I>>),
@@ -236,6 +237,7 @@ impl SimpleType {
     }
 }
 
+#[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
 enum TypedLValue {
     Local(SimpleType, TypedValueOffset),
     Global(SimpleType, TypedValueOffset),
@@ -263,12 +265,14 @@ impl TypedLValue {
     }
 }
 
+#[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
 enum TypedRValue {
     Copy(Box<TypedLValue>),
     Clone(Box<TypedLValue>),
     PtrTag(Box<TypedLValue>),
     PtrLengthWord(Box<TypedLValue>),
     PtrLengthPtr(Box<TypedLValue>),
+    Alloc(Box<TypedRValue>, Box<TypedRValue>, Box<TypedRValue>), // ptr type, length word, length ptr
     Closure(usize, usize, Vec<(TypedValueOffset, TypedRValue)>), // module, function, args, rets, curries
 }
 
@@ -276,13 +280,25 @@ impl TypedRValue {
     fn get_type(&self) -> Result<&SimpleType, String> {
         match self {
             TypedRValue::Copy(lval) => lval.get_type(),
+            TypedRValue::Clone(lval) => lval.get_type(),
             TypedRValue::PtrTag(lval) | TypedRValue::PtrLengthWord(lval) | TypedRValue::PtrLengthPtr(lval) => {
                 if lval.get_type()? != &SimpleType::Ptr {
                     return Err("bad pointer type".to_string());
                 }
                 Ok(&SimpleType::Word)
             },
-            TypedRValue::Clone(lval) => lval.get_type(),
+            TypedRValue::Alloc(ptr_typ, len_word, len_ptr) => {
+                if ptr_typ.get_type()? != &SimpleType::Word {
+                    return Err("bad pointer type".to_string());
+                }
+                if len_word.get_type()? != &SimpleType::Word {
+                    return Err("bad length word type".to_string());
+                }
+                if len_ptr.get_type()? != &SimpleType::Word {
+                    return Err("bad length ptr type".to_string());
+                }
+                Ok(&SimpleType::Ptr)
+            },
             TypedRValue::Closure(_, _, curries) => {
                 for (offset, curry) in curries.iter() {
                     curry.get_type()?;
@@ -293,3 +309,11 @@ impl TypedRValue {
     }
 }
 
+#[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
+enum TypedStatement {
+    Assign(TypedLValue, TypedRValue),
+    Swap(TypedLValue, TypedLValue),
+    Call(usize, usize, Vec<TypedLValue>, Vec<TypedLValue>), // module, function, args, returns
+    CallPtr(TypedLValue, Vec<TypedLValue>, Vec<TypedLValue>),
+    Return(Vec<TypedLValue>),
+}

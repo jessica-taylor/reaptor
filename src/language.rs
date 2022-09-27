@@ -163,6 +163,7 @@ impl<V> VMWordRValue<V> {
 enum VMPtrRValue<V> {
     Copy(Box<VMPtrLValue<V>>),
     CloneRc(Box<VMPtrLValue<V>>),
+    Alloc(Box<VMWordRValue<V>>, Box<VMWordRValue<V>>, Box<VMWordRValue<V>>), // ptr type, length word, length ptr
     Closure(V, V, Locals<Box<VMPtrRValue<V>>>), // module, function, curries
 }
 
@@ -171,6 +172,10 @@ impl<V> VMPtrRValue<V> {
         Ok(match self {
             VMPtrRValue::Copy(ptr) => VMPtrRValue::Copy(Box::new(ptr.map(mod_id, proc_id, mapper)?)),
             VMPtrRValue::CloneRc(ptr) => VMPtrRValue::CloneRc(Box::new(ptr.map(mod_id, proc_id, mapper)?)),
+            VMPtrRValue::Alloc(typ, len_w, len_p) =>
+                VMPtrRValue::Alloc(Box::new(typ.map(mod_id, proc_id, mapper)?),
+                                   Box::new(len_w.map(mod_id, proc_id, mapper)?),
+                                   Box::new(len_p.map(mod_id, proc_id, mapper)?)),
             VMPtrRValue::Closure(module, function, curries) => {
                 let mut cur_words = Vec::new();
                 let mut cur_ptrs = Vec::new();
@@ -201,7 +206,6 @@ enum VMStatement<V> {
     SetPtr(VMPtrLValue<V>, VMPtrRValue<V>),
     SwapWord(VMWordLValue<V>, VMWordLValue<V>),
     SwapPtr(VMWordLValue<V>, VMPtrLValue<V>),
-    Alloc(VMPtrLValue<V>, VMWordRValue<V>),
     Call(V, V, Locals<V>, Locals<V>), // module, function, args, returns
     CallPtr(VMPtrLValue<V>, Locals<V>, Locals<V>),
     Return(Locals<V>)
@@ -214,7 +218,6 @@ impl<V> VMStatement<V> {
             VMStatement::SetPtr(lvalue, rvalue) => VMStatement::SetPtr(lvalue.map(mod_id, proc_id, mapper)?, rvalue.map(mod_id, proc_id, mapper)?),
             VMStatement::SwapWord(lvalue1, lvalue2) => VMStatement::SwapWord(lvalue1.map(mod_id, proc_id, mapper)?, lvalue2.map(mod_id, proc_id, mapper)?),
             VMStatement::SwapPtr(lvalue1, lvalue2) => VMStatement::SwapPtr(lvalue1.map(mod_id, proc_id, mapper)?, lvalue2.map(mod_id, proc_id, mapper)?),
-            VMStatement::Alloc(lvalue, rvalue) => VMStatement::Alloc(lvalue.map(mod_id, proc_id, mapper)?, rvalue.map(mod_id, proc_id, mapper)?),
             VMStatement::Call(module, function, args, returns) => {
                 let fun_module = mapper.get_module(module)?;
                 let fun_proc = mapper.get_procedure(&fun_module, function)?;
