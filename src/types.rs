@@ -268,15 +268,10 @@ impl<V> TypedLValue<V> {
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
 enum TypedRValue<V> {
     Copy(Box<TypedLValue<V>>),
-    Clone(Box<TypedLValue<V>>),
     ConstWord(u64),
-    Tuple(Vec<TypedRValue<V>>),
-    Union(Vec<SimpleType>, usize, Box<TypedRValue<V>>),
-    Array(usize, Box<TypedRValue<V>>),
     PtrTag(Box<TypedLValue<V>>),
     PtrLengthWord(Box<TypedLValue<V>>),
     PtrLengthPtr(Box<TypedLValue<V>>),
-    Alloc(Box<TypedRValue<V>>, Box<TypedRValue<V>>, Box<TypedRValue<V>>), // ptr type, length word, length ptr
     FunPtr(V, V), // module, function
 }
 
@@ -284,37 +279,12 @@ impl<V> TypedRValue<V> {
     fn get_type(&self) -> Result<SimpleType, String> {
         match self {
             TypedRValue::Copy(lval) => lval.get_type(),
-            TypedRValue::Clone(lval) => lval.get_type(),
             TypedRValue::ConstWord(_) => Ok(SimpleType::Word),
-            TypedRValue::Tuple(tup) => Ok(SimpleType::Tuple(tup.iter().map(|x| x.get_type()).collect::<Result<Vec<_>, _>>()?)),
-            TypedRValue::Union(union, ix, val) => {
-                let elem_typ = union.get(*ix).ok_or("bad union index".to_string())?.clone();
-                if val.get_type()? != elem_typ {
-                    return Err("bad union value type".to_string());
-                }
-                Ok(SimpleType::Union(union.clone()))
-            },
-            TypedRValue::Array(len, elem) => {
-                let elem_typ = elem.get_type()?;
-                Ok(SimpleType::Array(Offset::Finite(*len), Box::new(elem_typ.clone())))
-            },
             TypedRValue::PtrTag(lval) | TypedRValue::PtrLengthWord(lval) | TypedRValue::PtrLengthPtr(lval) => {
                 if lval.get_type()? != SimpleType::Ptr {
                     return Err("bad pointer type".to_string());
                 }
                 Ok(SimpleType::Word)
-            },
-            TypedRValue::Alloc(ptr_typ, len_word, len_ptr) => {
-                if ptr_typ.get_type()? != SimpleType::Word {
-                    return Err("bad pointer type".to_string());
-                }
-                if len_word.get_type()? != SimpleType::Word {
-                    return Err("bad length word type".to_string());
-                }
-                if len_ptr.get_type()? != SimpleType::Word {
-                    return Err("bad length ptr type".to_string());
-                }
-                Ok(SimpleType::Ptr)
             },
             TypedRValue::FunPtr(_, _) => Ok(SimpleType::Ptr),
         }
@@ -324,7 +294,9 @@ impl<V> TypedRValue<V> {
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
 enum TypedStatement<V> {
     Assign(TypedLValue<V>, TypedRValue<V>),
+    AssignClone(TypedLValue<V>, TypedLValue<V>),
     Swap(TypedLValue<V>, TypedLValue<V>),
+    Alloc(TypedLValue<V>, TypedRValue<V>, TypedRValue<V>, TypedRValue<V>), // dest, ptr type, length word, length ptr
     Call(V, V, Vec<TypedLValue<V>>, Vec<TypedLValue<V>>), // module, function, args, returns
     CallPtr(TypedLValue<V>, Vec<TypedLValue<V>>, Vec<TypedLValue<V>>),
     Return(Vec<TypedLValue<V>>),
