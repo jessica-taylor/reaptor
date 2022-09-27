@@ -93,13 +93,14 @@ pub enum VMPtrLValue {
     Index(Box<VMPtrLValue>, Box<VMWordRValue>),
 }
 
-pub enum UnOp {
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
+pub enum WordUnOp {
     Neg,
     Not,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-pub enum BinOp {
+pub enum WordBinOp {
     AddS,
     AddU,
     SubS,
@@ -132,6 +133,8 @@ pub enum VMWordRValue {
     PtrTag(Box<VMPtrLValue>),
     PtrLengthWord(Box<VMPtrLValue>),
     PtrLengthPtr(Box<VMPtrLValue>),
+    UnOp(WordUnOp, Box<VMWordRValue>),
+    BinOp(WordBinOp, Box<VMWordRValue>, Box<VMWordRValue>),
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]

@@ -3,7 +3,7 @@ use std::ops;
 
 use serde::{Deserialize, Serialize};
 
-use crate::language::{Counts, VMStatement, VMProcedure};
+use crate::language::{Counts, VMStatement, VMProcedure, VMWordRValue, WordUnOp, WordBinOp};
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Serialize, Deserialize)]
 enum Offset {
@@ -289,20 +289,34 @@ enum TypedRValue<V> {
     PtrLengthWord(Box<TypedLValue<V>>),
     PtrLengthPtr(Box<TypedLValue<V>>),
     FunPtr(V, V), // module, function
+    BinOp(WordBinOp, Box<TypedRValue<V>>, Box<TypedRValue<V>>),
+    UnOp(WordUnOp, Box<TypedRValue<V>>),
 }
 
 impl<V: Eq + Ord + Clone> TypedRValue<V> {
     fn get_type(&self, locals: &BTreeMap<V, SimpleType>, globals: &BTreeMap<V, SimpleType>) -> Result<SimpleType, String> {
         match self {
-            TypedRValue::Copy(lval) => lval.get_type(locals, globals),
-            TypedRValue::ConstWord(_) => Ok(SimpleType::Word),
-            TypedRValue::PtrTag(lval) | TypedRValue::PtrLengthWord(lval) | TypedRValue::PtrLengthPtr(lval) => {
+            Self::Copy(lval) => lval.get_type(locals, globals),
+            Self::ConstWord(_) => Ok(SimpleType::Word),
+            Self::PtrTag(lval) | TypedRValue::PtrLengthWord(lval) | TypedRValue::PtrLengthPtr(lval) => {
                 if lval.get_type(locals, globals)? != SimpleType::Ptr {
                     return Err("bad pointer type".to_string());
                 }
                 Ok(SimpleType::Word)
             },
-            TypedRValue::FunPtr(_, _) => Ok(SimpleType::Ptr),
+            Self::FunPtr(_, _) => Ok(SimpleType::Ptr),
+            Self::BinOp(_, lhs, rhs) => {
+                if lhs.get_type(locals, globals)? != SimpleType::Word || rhs.get_type(locals, globals)? != SimpleType::Word {
+                    return Err("bad word type".to_string());
+                }
+                Ok(SimpleType::Word)
+            },
+            Self::UnOp(_, val) => {
+                if val.get_type(locals, globals)? != SimpleType::Word {
+                    return Err("bad word type".to_string());
+                }
+                Ok(SimpleType::Word)
+            }
         }
     }
 }
@@ -339,37 +353,44 @@ impl<V: Eq + Ord + Clone> AllocSpec<V> {
                     let mut ptr_addend = None;
                     for (spec, typ) in specs.iter().zip(typs.iter()) {
                         let (w, p) = spec.get_size(typ)?;
-                        if let AllocLength::Const(ws) = w {
-                            if ws != 0 && word_addend.is_some() {
-                                return Err("can't add items after a non-constant alloc size".to_string());
+                        match w {
+                            AllocLength::Const(ws) => {
+                                if ws != 0 && word_addend.is_some() {
+                                    return Err("can't add items after a non-constant alloc size".to_string());
+                                }
+                                words += ws;
+                            },
+                            AllocLength::Dynamic(w) => {
+                                if word_addend.is_some() {
+                                    return Err("bad tuple alloc spec".to_string());
+                                }
+                                word_addend = Some(w);
                             }
-                            words += ws;
-                        } else if word_addend.is_none() {
-                            word_addend = Some(w);
-                        } else {
-                            return Err("bad tuple size".to_string());
                         }
 
-                        if let AllocLength::Const(ps) = p {
-                            if ps != 0 && ptr_addend.is_some() {
-                                return Err("can't add items after a non-constant alloc size".to_string());
+                        match p {
+                            AllocLength::Const(ps) => {
+                                if ps != 0 && ptr_addend.is_some() {
+                                    return Err("can't add items after a non-constant alloc size".to_string());
+                                }
+                                ptrs += ps;
+                            },
+                            AllocLength::Dynamic(p) => {
+                                if ptr_addend.is_some() {
+                                    return Err("bad tuple alloc spec".to_string());
+                                }
+                                ptr_addend = Some(p);
                             }
-                            ptrs += ps;
-                        } else if ptr_addend.is_none() {
-                            ptr_addend = Some(p);
-                        } else {
-                            return Err("bad tuple size".to_string());
                         }
                     }
                     
                     let tot_words = if let Some(w) = word_addend {
-                        // TODO add stuff
-                        return Err("not implemented".to_string());
+                        AllocLength::Dynamic(TypedRValue::BinOp(WordBinOp::AddU, Box::new(TypedRValue::ConstWord(words as u64)), Box::new(w)))
                     } else {
                         AllocLength::Const(words)
                     };
                     let tot_ptrs = if let Some(p) = ptr_addend {
-                        return Err("not implemented".to_string());
+                        AllocLength::Dynamic(TypedRValue::BinOp(WordBinOp::AddU, Box::new(TypedRValue::ConstWord(ptrs as u64)), Box::new(p)))
                     } else {
                         AllocLength::Const(ptrs)
                     };
@@ -384,14 +405,13 @@ impl<V: Eq + Ord + Clone> AllocSpec<V> {
                     let words = if counts.words == 0 {
                         AllocLength::Const(0)
                     } else {
-                        // TODO multiply
-                        return Err("not implemented".to_string());
+                        // TODO: problem that len is repeated?
+                        AllocLength::Dynamic(TypedRValue::BinOp(WordBinOp::MulU, Box::new(TypedRValue::ConstWord(counts.words as u64)), len.clone()))
                     };
                     let ptrs = if counts.ptrs == 0 {
                         AllocLength::Const(0)
                     } else {
-                        // TODO multiply
-                        return Err("not implemented".to_string());
+                        AllocLength::Dynamic(TypedRValue::BinOp(WordBinOp::MulU, Box::new(TypedRValue::ConstWord(counts.ptrs as u64)), len.clone()))
                     };
                     Ok((words, ptrs))
                 } else {
