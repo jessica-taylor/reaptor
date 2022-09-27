@@ -3,7 +3,7 @@ use std::ops;
 
 use serde::{Deserialize, Serialize};
 
-use crate::language::{Counts, VMStatement, VMProcedure, VMWordRValue, WordUnOp, WordBinOp};
+use crate::language::{Counts, VMStatement, VMProcedure, VMWordLValue, VMWordRValue, WordUnOp, WordBinOp};
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Serialize, Deserialize)]
 enum Offset {
@@ -248,6 +248,16 @@ impl SimpleType {
     }
 }
 
+trait TypecheckCtx<V> {
+    fn local_type(&self, v: &V) -> Result<SimpleType, String>;
+    fn global_type(&self, v: &V) -> Result<SimpleType, String>;
+}
+
+trait CompileCtx<V> : TypecheckCtx<V> {
+    fn local_offset(&self, v: &V) -> Result<TypedValueOffset, String>;
+    fn global_offset(&self, v: &V) -> Result<TypedValueOffset, String>;
+}
+
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
 enum TypedLValue<V> {
     Local(V),
@@ -258,26 +268,29 @@ enum TypedLValue<V> {
     DerefPtr(SimpleType, Box<TypedLValue<V>>),
 }
 
-impl<V: Eq + Ord + Clone> TypedLValue<V> {
-    fn get_type(&self, locals: &BTreeMap<V, SimpleType>, globals: &BTreeMap<V, SimpleType>) -> Result<SimpleType, String> {
+impl<V> TypedLValue<V> {
+    fn get_type(&self, ctx: &dyn TypecheckCtx<V>) -> Result<SimpleType, String> {
         match self {
-            TypedLValue::Local(v) => locals.get(v).ok_or("bad local".to_string()).map(|x| x.clone()),
-            TypedLValue::Global(v) => globals.get(v).ok_or("bad global".to_string()).map(|x| x.clone()),
-            TypedLValue::TupleIndex(tup_typ, tup, ix) => tup.get_type(locals, globals)?.index::<usize>(&SimpleTypeIndex::TupleElem(*ix, Box::new(SimpleTypeIndex::This))),
+            TypedLValue::Local(v) => ctx.local_type(v),
+            TypedLValue::Global(v) => ctx.global_type(v),
+            TypedLValue::TupleIndex(tup_typ, tup, ix) => tup.get_type(ctx)?.index::<usize>(&SimpleTypeIndex::TupleElem(*ix, Box::new(SimpleTypeIndex::This))),
             TypedLValue::ArrayIndex(arr_typ, arr, ix) => {
-                if ix.get_type(locals, globals)? != SimpleType::Word {
+                if ix.get_type(ctx)? != SimpleType::Word {
                     return Err("array index must be a word".to_string());
                 }
-                arr.get_type(locals, globals)?.index::<usize>(&SimpleTypeIndex::ArrayElem(0, Box::new(SimpleTypeIndex::This)))
+                arr.get_type(ctx)?.index::<usize>(&SimpleTypeIndex::ArrayElem(0, Box::new(SimpleTypeIndex::This)))
             },
-            TypedLValue::UnionIndex(union_typ, union, ix) => union.get_type(locals, globals)?.index::<usize>(&SimpleTypeIndex::UnionElem(*ix, Box::new(SimpleTypeIndex::This))),
+            TypedLValue::UnionIndex(union_typ, union, ix) => union.get_type(ctx)?.index::<usize>(&SimpleTypeIndex::UnionElem(*ix, Box::new(SimpleTypeIndex::This))),
             TypedLValue::DerefPtr(typ, ptr) => {
-                if ptr.get_type(locals, globals)? != SimpleType::Ptr {
+                if ptr.get_type(ctx)? != SimpleType::Ptr {
                     return Err("bad pointer type".to_string());
                 }
                 Ok(typ.clone())
             }
         }
+    }
+    fn compile_word_at(&self, ix: usize, ctx: &dyn CompileCtx<V>) -> Result<VMWordLValue, String> {
+        Err("not implemented".to_string())
     }
 }
 
@@ -293,26 +306,26 @@ enum TypedRValue<V> {
     UnOp(WordUnOp, Box<TypedRValue<V>>),
 }
 
-impl<V: Eq + Ord + Clone> TypedRValue<V> {
-    fn get_type(&self, locals: &BTreeMap<V, SimpleType>, globals: &BTreeMap<V, SimpleType>) -> Result<SimpleType, String> {
+impl<V> TypedRValue<V> {
+    fn get_type(&self, ctx: &dyn TypecheckCtx<V>) -> Result<SimpleType, String> {
         match self {
-            Self::Copy(lval) => lval.get_type(locals, globals),
+            Self::Copy(lval) => lval.get_type(ctx),
             Self::ConstWord(_) => Ok(SimpleType::Word),
             Self::PtrTag(lval) | TypedRValue::PtrLengthWord(lval) | TypedRValue::PtrLengthPtr(lval) => {
-                if lval.get_type(locals, globals)? != SimpleType::Ptr {
+                if lval.get_type(ctx)? != SimpleType::Ptr {
                     return Err("bad pointer type".to_string());
                 }
                 Ok(SimpleType::Word)
             },
             Self::FunPtr(_, _) => Ok(SimpleType::Ptr),
             Self::BinOp(_, lhs, rhs) => {
-                if lhs.get_type(locals, globals)? != SimpleType::Word || rhs.get_type(locals, globals)? != SimpleType::Word {
+                if lhs.get_type(ctx)? != SimpleType::Word || rhs.get_type(ctx)? != SimpleType::Word {
                     return Err("bad word type".to_string());
                 }
                 Ok(SimpleType::Word)
             },
             Self::UnOp(_, val) => {
-                if val.get_type(locals, globals)? != SimpleType::Word {
+                if val.get_type(ctx)? != SimpleType::Word {
                     return Err("bad word type".to_string());
                 }
                 Ok(SimpleType::Word)
