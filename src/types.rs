@@ -452,7 +452,7 @@ enum TypedStatement<V> {
     CallPtr(TypedLValue<V>, Vec<TypedLValue<V>>, Vec<TypedLValue<V>>),
     Return(Vec<TypedLValue<V>>),
     If(TypedRValue<V>, Vec<TypedStatement<V>>),
-    Loop(Vec<TypedStatement<V>>),
+    Block(Vec<TypedStatement<V>>),
     Continue(usize),
     Break(usize)
 }
