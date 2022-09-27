@@ -264,16 +264,10 @@ impl TypedLValue {
 }
 
 enum TypedRValue {
-    Local(SimpleType, TypedValueOffset),
-    Global(SimpleType, TypedValueOffset),
-    TupleIndex(SimpleType, Box<TypedLValue>, usize),
-    ArrayIndex(SimpleType, Box<TypedRValue>),
-    UnionIndex(SimpleType, Box<TypedLValue>, usize),
-    PtrIndex(SimpleType, Box<TypedLValue>, SimpleTypeIndex<Box<TypedRValue>>),
+    Copy(Box<TypedLValue>),
     PtrTag(Box<TypedLValue>),
     PtrLengthWord(Box<TypedLValue>),
     PtrLengthPtr(Box<TypedLValue>),
-    Copy(Box<TypedLValue>),
     CloneRc(Box<TypedLValue>),
     Closure(usize, usize, Vec<(usize, usize, TypedRValue)>), // module, function, curries
 }

@@ -142,9 +142,7 @@ impl<V> VMPtrLValue<V> {
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 enum VMWordRValue<V> {
-    Local(V),
-    Global(V),
-    Index(Box<VMPtrLValue<V>>, Box<VMWordRValue<V>>),
+    Copy(Box<VMPtrLValue<V>>),
     PtrTag(Box<VMPtrLValue<V>>),
     PtrLengthWord(Box<VMPtrLValue<V>>),
     PtrLengthPtr(Box<VMPtrLValue<V>>),
@@ -153,9 +151,7 @@ enum VMWordRValue<V> {
 impl<V> VMWordRValue<V> {
     fn map<V2>(&self, mod_id: &V2, proc_id: &V2, mapper: &dyn VarMapper<V, V2>) -> Result<VMWordRValue<V2>, String> {
         Ok(match self {
-            VMWordRValue::Local(v) => VMWordRValue::Local(mapper.get_local_word(mod_id, proc_id, v)?),
-            VMWordRValue::Global(v) => VMWordRValue::Global(mapper.get_global_word(mod_id, v)?),
-            VMWordRValue::Index(ptr, index) => VMWordRValue::Index(Box::new(ptr.map(mod_id, proc_id, mapper)?), Box::new(index.map(mod_id, proc_id, mapper)?)),
+            VMWordRValue::Copy(ptr) => VMWordRValue::Copy(Box::new(ptr.map(mod_id, proc_id, mapper)?)),
             VMWordRValue::PtrTag(ptr) => VMWordRValue::PtrTag(Box::new(ptr.map(mod_id, proc_id, mapper)?)),
             VMWordRValue::PtrLengthWord(ptr) => VMWordRValue::PtrLengthWord(Box::new(ptr.map(mod_id, proc_id, mapper)?)),
             VMWordRValue::PtrLengthPtr(ptr) => VMWordRValue::PtrLengthPtr(Box::new(ptr.map(mod_id, proc_id, mapper)?)),
