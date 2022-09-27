@@ -451,6 +451,10 @@ enum TypedStatement<V> {
     Call(V, V, Vec<TypedLValue<V>>, Vec<TypedLValue<V>>), // module, function, args, returns
     CallPtr(TypedLValue<V>, Vec<TypedLValue<V>>, Vec<TypedLValue<V>>),
     Return(Vec<TypedLValue<V>>),
+    If(TypedRValue<V>, Vec<TypedStatement<V>>),
+    Loop(Vec<TypedStatement<V>>),
+    Continue(usize),
+    Break(usize)
 }
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]

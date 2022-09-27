@@ -174,7 +174,11 @@ pub enum VMStatement<V> {
     Alloc(VMPtrLValue, VMWordRValue, VMWordRValue, VMWordRValue), // dest, tag, length word, length ptr
     Call(V, V, VMLValues, Locals), // module, function, args, returns
     CallPtr(VMPtrLValue, VMLValues, Locals),
-    Return(Locals)
+    Return(Locals),
+    If(VMWordRValue, Vec<VMStatement<V>>),
+    Loop(Vec<VMStatement<V>>),
+    Continue(usize),
+    Break(usize)
 }
 
 impl<V> VMStatement<V> {
@@ -197,6 +201,10 @@ impl<V> VMStatement<V> {
             VMStatement::Alloc(a, b, c, d) => VMStatement::Alloc(a, b, c, d),
             VMStatement::CallPtr(a, b, c) => VMStatement::CallPtr(a, b, c),
             VMStatement::Return(a) => VMStatement::Return(a),
+            VMStatement::If(a, b) => VMStatement::If(a, b.into_iter().map(|s| s.map(mapper)).collect::<Result<Vec<_>, _>>()?),
+            VMStatement::Loop(a) => VMStatement::Loop(a.into_iter().map(|s| s.map(mapper)).collect::<Result<Vec<_>, _>>()?),
+            VMStatement::Continue(a) => VMStatement::Continue(a),
+            VMStatement::Break(a) => VMStatement::Break(a),
         })
     }
 }
