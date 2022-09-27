@@ -19,8 +19,8 @@ pub enum VMType {
 pub enum VMPtrType {
     Fun,
     Static,
-    Box,
-    Rc
+    Rc,
+    Framework
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone, Copy)]
@@ -149,6 +149,7 @@ pub enum VMWordRValue {
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 pub enum VMPtrRValue<V> {
+    Null,
     Copy(Box<VMPtrLValue>),
     FunPtr(V, V), // module, function
 }
@@ -156,6 +157,7 @@ pub enum VMPtrRValue<V> {
 impl<V> VMPtrRValue<V> {
     fn map<V2>(self, mapper: &dyn VarMapper<V, V2>) -> Result<VMPtrRValue<V2>, String> {
         Ok(match self {
+            VMPtrRValue::Null => VMPtrRValue::Null,
             VMPtrRValue::Copy(ptr) => VMPtrRValue::Copy(ptr),
             VMPtrRValue::FunPtr(module, function) => {
                 let fun_mod_id = mapper.get_module(&module)?;
