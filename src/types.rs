@@ -308,11 +308,20 @@ impl<V: Eq + Ord + Clone> TypedRValue<V> {
 }
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
+enum AllocSpec<V> {
+    Full,
+    Tuple(Vec<AllocSpec<V>>),
+    DynamicArray(Box<TypedRValue<V>>),
+    TrailingUnion(usize, Box<AllocSpec<V>>)
+}
+
+#[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
 enum TypedStatement<V> {
     Assign(TypedLValue<V>, TypedRValue<V>),
     AssignClone(TypedLValue<V>, TypedLValue<V>),
     Swap(TypedLValue<V>, TypedLValue<V>),
-    Alloc(TypedLValue<V>, TypedRValue<V>, TypedRValue<V>, TypedRValue<V>), // dest, ptr type, length word, length ptr
+    Alloc(TypedLValue<V>, TypedRValue<V>, SimpleType, AllocSpec<V>), // dest, ptr type, data type,
+                                                                     // spec
     Call(V, V, Vec<TypedLValue<V>>, Vec<TypedLValue<V>>), // module, function, args, returns
     CallPtr(TypedLValue<V>, Vec<TypedLValue<V>>, Vec<TypedLValue<V>>),
     Return(Vec<TypedLValue<V>>),
@@ -339,14 +348,14 @@ impl<V: Clone + Ord> TypedProcedure<V> {
             var_offsets.insert(k.clone(), offset);
             offset = offset.add_checked(&v.size()?)?;
         }
-        let param_counts = offset.to_counts();
+        let param_counts = offset.to_counts()?;
 
         for (k, v) in &self.locals {
             var_types.insert(k.clone(), v.clone());
             var_offsets.insert(k.clone(), offset);
             offset = offset.add_checked(&v.size()?)?;
         }
-        let local_counts = offset.to_counts()? - param_counts?;
+        let local_counts = offset.to_counts()? - param_counts;
 
         let mut ret_offsets: Vec<TypedValueOffset> = Vec::new();
         let mut ret_offset = TypedValueOffset::zero();
@@ -354,14 +363,9 @@ impl<V: Clone + Ord> TypedProcedure<V> {
             ret_offsets.push(ret_offset);
             ret_offset = ret_offset.add_checked(&ret.size()?)?;
         }
-        let return_counts = ret_offset.to_counts();
-
+        let return_counts = ret_offset.to_counts()?;
 
         let mut statements: Vec<VMStatement<V>> = Vec::new();
-
-        let param_counts = Counts::zero();
-        let local_counts = Counts::zero();
-        let return_counts = Counts::zero();
 
         Ok(VMProcedure {
             name: self.name.clone(),

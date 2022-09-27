@@ -121,6 +121,21 @@ impl<V> VMPtrRValue<V> {
     }
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
+struct VMLValues {
+    words: Vec<VMWordLValue>,
+    ptrs: Vec<VMPtrLValue>,
+}
+
+impl VMLValues {
+    fn count(&self) -> Counts {
+        Counts {
+            words: self.words.len(),
+            ptrs: self.ptrs.len(),
+        }
+    }
+}
+
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 pub enum VMStatement<V> {
@@ -130,8 +145,8 @@ pub enum VMStatement<V> {
     SwapPtr(VMWordLValue, VMPtrLValue),
     CloneRc(VMPtrLValue, VMPtrLValue), // clone second to first
     Alloc(VMPtrLValue, VMWordRValue, VMWordRValue, VMWordRValue), // dest, tag, length word, length ptr
-    Call(V, V, Locals, Locals), // module, function, args, returns
-    CallPtr(VMPtrLValue, Locals, Locals),
+    Call(V, V, VMLValues, Locals), // module, function, args, returns
+    CallPtr(VMPtrLValue, VMLValues, Locals),
     Return(Locals)
 }
 
