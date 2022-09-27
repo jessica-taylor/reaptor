@@ -195,9 +195,9 @@ impl<I> SimpleTypeIndex<I> {
 
 
 impl SimpleType {
-    fn index<I>(&self, ix: &SimpleTypeIndex<I>) -> Result<&SimpleType, String> {
+    fn index<I>(&self, ix: &SimpleTypeIndex<I>) -> Result<SimpleType, String> {
         match (self, ix) {
-            (_, SimpleTypeIndex::This) => Ok(self),
+            (_, SimpleTypeIndex::This) => Ok(self.clone()),
             (SimpleType::Tuple(t), SimpleTypeIndex::TupleElem(i, rest)) => t.get(*i).ok_or("bad tuple index".to_string())?.index(rest.as_ref()),
             (SimpleType::Array(_, t), SimpleTypeIndex::ArrayElem(_, rest)) => {
                 t.index(rest.as_ref())
@@ -248,18 +248,18 @@ enum TypedLValue<V> {
 }
 
 impl<V> TypedLValue<V> {
-    fn get_type(&self) -> Result<&SimpleType, String> {
+    fn get_type(&self) -> Result<SimpleType, String> {
         match self {
-            TypedLValue::Local(t, _) => Ok(t),
-            TypedLValue::Global(t, _) => Ok(t),
+            TypedLValue::Local(t, _) => Ok(t.clone()),
+            TypedLValue::Global(t, _) => Ok(t.clone()),
             TypedLValue::TupleIndex(tup_typ, tup, ix) => tup.get_type()?.index::<usize>(&SimpleTypeIndex::TupleElem(*ix, Box::new(SimpleTypeIndex::This))),
             TypedLValue::ArrayIndex(arr_typ, arr) => arr.get_type()?.index::<usize>(&SimpleTypeIndex::ArrayElem(0, Box::new(SimpleTypeIndex::This))),
             TypedLValue::UnionIndex(union_typ, union, ix) => union.get_type()?.index::<usize>(&SimpleTypeIndex::UnionElem(*ix, Box::new(SimpleTypeIndex::This))),
             TypedLValue::DerefPtr(typ, ptr) => {
-                if ptr.get_type()? != &SimpleType::Ptr {
+                if ptr.get_type()? != SimpleType::Ptr {
                     return Err("bad pointer type".to_string());
                 }
-                Ok(typ)
+                Ok(typ.clone())
             }
         }
     }
@@ -270,6 +270,9 @@ enum TypedRValue<V> {
     Copy(Box<TypedLValue<V>>),
     Clone(Box<TypedLValue<V>>),
     ConstWord(u64),
+    Tuple(Vec<TypedRValue<V>>),
+    Union(Vec<SimpleType>, usize, Box<TypedRValue<V>>),
+    Array(usize, Box<TypedRValue<V>>),
     PtrTag(Box<TypedLValue<V>>),
     PtrLengthWord(Box<TypedLValue<V>>),
     PtrLengthPtr(Box<TypedLValue<V>>),
@@ -278,30 +281,42 @@ enum TypedRValue<V> {
 }
 
 impl<V> TypedRValue<V> {
-    fn get_type(&self) -> Result<&SimpleType, String> {
+    fn get_type(&self) -> Result<SimpleType, String> {
         match self {
             TypedRValue::Copy(lval) => lval.get_type(),
             TypedRValue::Clone(lval) => lval.get_type(),
-            TypedRValue::ConstWord(_) => Ok(&SimpleType::Word),
+            TypedRValue::ConstWord(_) => Ok(SimpleType::Word),
+            TypedRValue::Tuple(tup) => Ok(SimpleType::Tuple(tup.iter().map(|x| x.get_type()).collect::<Result<Vec<_>, _>>()?)),
+            TypedRValue::Union(union, ix, val) => {
+                let elem_typ = union.get(*ix).ok_or("bad union index".to_string())?.clone();
+                if val.get_type()? != elem_typ {
+                    return Err("bad union value type".to_string());
+                }
+                Ok(SimpleType::Union(union.clone()))
+            },
+            TypedRValue::Array(len, elem) => {
+                let elem_typ = elem.get_type()?;
+                Ok(SimpleType::Array(Offset::Finite(*len), Box::new(elem_typ.clone())))
+            },
             TypedRValue::PtrTag(lval) | TypedRValue::PtrLengthWord(lval) | TypedRValue::PtrLengthPtr(lval) => {
-                if lval.get_type()? != &SimpleType::Ptr {
+                if lval.get_type()? != SimpleType::Ptr {
                     return Err("bad pointer type".to_string());
                 }
-                Ok(&SimpleType::Word)
+                Ok(SimpleType::Word)
             },
             TypedRValue::Alloc(ptr_typ, len_word, len_ptr) => {
-                if ptr_typ.get_type()? != &SimpleType::Word {
+                if ptr_typ.get_type()? != SimpleType::Word {
                     return Err("bad pointer type".to_string());
                 }
-                if len_word.get_type()? != &SimpleType::Word {
+                if len_word.get_type()? != SimpleType::Word {
                     return Err("bad length word type".to_string());
                 }
-                if len_ptr.get_type()? != &SimpleType::Word {
+                if len_ptr.get_type()? != SimpleType::Word {
                     return Err("bad length ptr type".to_string());
                 }
-                Ok(&SimpleType::Ptr)
+                Ok(SimpleType::Ptr)
             },
-            TypedRValue::FunPtr(_, _) => Ok(&SimpleType::Ptr),
+            TypedRValue::FunPtr(_, _) => Ok(SimpleType::Ptr),
         }
     }
 }
