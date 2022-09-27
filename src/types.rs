@@ -265,35 +265,31 @@ impl TypedLValue {
 
 enum TypedRValue {
     Copy(Box<TypedLValue>),
+    Clone(Box<TypedLValue>),
     PtrTag(Box<TypedLValue>),
     PtrLengthWord(Box<TypedLValue>),
     PtrLengthPtr(Box<TypedLValue>),
-    CloneRc(Box<TypedLValue>),
-    Closure(usize, usize, Vec<(usize, usize, TypedRValue)>), // module, function, curries
+    Closure(usize, usize, Vec<(TypedValueOffset, TypedRValue)>), // module, function, args, rets, curries
 }
 
 impl TypedRValue {
     fn get_type(&self) -> Result<&SimpleType, String> {
-        Err("not implemented".to_string())
-        // match self {
-        //     TypedLValue::Local(t, _) => Ok(t),
-        //     TypedLValue::Global(t, _) => Ok(t),
-        //     TypedLValue::TupleIndex(tup_typ, tup, ix) => tup.get_type()?.index(&SimpleTypeIndex::TupleElem(*ix, Box::new(SimpleTypeIndex::This))),
-        //     TypedLValue::ArrayIndex(arr_typ, arr) => arr.get_type()?.index(&SimpleTypeIndex::ArrayElem(0, Box::new(SimpleTypeIndex::This))),
-        //     TypedLValue::UnionIndex(union_typ, union, ix) => union.get_type()?.index(&SimpleTypeIndex::UnionElem(*ix, Box::new(SimpleTypeIndex::This))),
-        //     TypedLValue::PtrIndex(typ, ptr, ix) => {
-        //         if ptr.get_type()? != &SimpleType::Ptr {
-        //             return Err("bad pointer type".to_string());
-        //         }
-        //         ix.mapcat(&|word| {
-        //             if word.get_type()? != SimpleType::Word {
-        //                 return Err("bad index type".to_string());
-        //             }
-        //             Ok(())
-        //         })?;
-        //         typ.index(ix)
-        //     }
-        // }
+        match self {
+            TypedRValue::Copy(lval) => lval.get_type(),
+            TypedRValue::PtrTag(lval) | TypedRValue::PtrLengthWord(lval) | TypedRValue::PtrLengthPtr(lval) => {
+                if lval.get_type()? != &SimpleType::Ptr {
+                    return Err("bad pointer type".to_string());
+                }
+                Ok(&SimpleType::Word)
+            },
+            TypedRValue::Clone(lval) => lval.get_type(),
+            TypedRValue::Closure(_, _, curries) => {
+                for (offset, curry) in curries.iter() {
+                    curry.get_type()?;
+                }
+                Ok(&SimpleType::Ptr)
+            }
+        }
     }
 }
 
