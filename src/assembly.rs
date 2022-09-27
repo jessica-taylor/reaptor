@@ -139,7 +139,7 @@ pub enum WordBinOp {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 pub enum VMWordRValue {
     Const(u64),
-    Copy(Box<VMPtrLValue>),
+    Copy(Box<VMWordLValue>),
     PtrTag(Box<VMPtrLValue>),
     PtrLengthWord(Box<VMPtrLValue>),
     PtrLengthPtr(Box<VMPtrLValue>),
