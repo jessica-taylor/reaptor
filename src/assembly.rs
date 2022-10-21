@@ -3,12 +3,6 @@ use std::ops;
 
 use serde::{Deserialize, Serialize};
 
-trait VarMapper<V1, V2> {
-    fn get_module(&self, module: &V1) -> Result<V2, String>;
-
-    fn get_procedure(&self, mod_id: &V2, procedure: &V1) -> Result<V2, String>;
-}
-
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum VMType {
     Word,
@@ -18,7 +12,7 @@ pub enum VMType {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum VMPtrType {
     Fun,
-    Static,
+    Null,
     Rc,
     Framework
 }
@@ -55,6 +49,13 @@ impl Counts {
     pub fn zero() -> Counts {
         Counts { words: 0, ptrs: 0 }
     }
+    pub fn max(self, other: Counts) -> Counts {
+        Counts { words: self.words.max(other.words), ptrs: self.ptrs.max(other.ptrs) }
+    }
+    pub fn min(self, other: Counts) -> Counts {
+        Counts { words: self.words.min(other.words), ptrs: self.ptrs.min(other.ptrs) }
+    }
+
 }
 
 impl ops::Add for Counts {
@@ -93,23 +94,6 @@ impl Vars {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 pub struct Locals(Vars);
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-pub struct Globals(Vars);
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-pub enum VMWordLValue {
-    Local(Box<VMWordRValue>),
-    Global(Box<VMWordRValue>),
-    Index(Box<VMPtrLValue>, Box<VMWordRValue>),
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-pub enum VMPtrLValue {
-    Local(Box<VMWordRValue>),
-    Global(Box<VMWordRValue>),
-    Index(Box<VMPtrLValue>, Box<VMWordRValue>),
-}
-
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum WordUnOp {
     Neg,
@@ -137,110 +121,152 @@ pub enum WordBinOp {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-pub enum VMWordRValue {
-    Const(u64),
-    Copy(Box<VMWordLValue>),
-    PtrTag(Box<VMPtrLValue>),
-    PtrLengthWord(Box<VMPtrLValue>),
-    PtrLengthPtr(Box<VMPtrLValue>),
-    UnOp(WordUnOp, Box<VMWordRValue>),
-    BinOp(WordBinOp, Box<VMWordRValue>, Box<VMWordRValue>),
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-pub enum VMPtrRValue<V> {
-    Null,
-    Copy(Box<VMPtrLValue>),
-    FunPtr(V, V), // module, function
-    Alloc(VMWordRValue, VMWordRValue), // length word, length ptr
-}
-
-impl<V> VMPtrRValue<V> {
-    fn map<V2>(self, mapper: &impl VarMapper<V, V2>) -> Result<VMPtrRValue<V2>, String> {
-        Ok(match self {
-            VMPtrRValue::Null => VMPtrRValue::Null,
-            VMPtrRValue::Copy(ptr) => VMPtrRValue::Copy(ptr),
-            VMPtrRValue::FunPtr(module, function) => {
-                let fun_mod_id = mapper.get_module(&module)?;
-                let fun_proc_id = mapper.get_procedure(&fun_mod_id, &function)?;
-                VMPtrRValue::FunPtr(fun_mod_id, fun_proc_id)
-            }
-            VMPtrRValue::Alloc(a, b) => VMPtrRValue::Alloc(a, b),
-        })
-    }
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-pub struct VMLValues {
-    pub words: Vec<VMWordLValue>,
-    pub ptrs: Vec<VMPtrLValue>,
-}
-
-impl VMLValues {
-    fn count(&self) -> Counts {
-        Counts {
-            words: self.words.len(),
-            ptrs: self.ptrs.len(),
-        }
-    }
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-pub struct VMRValues<V> {
-    pub words: Vec<VMWordRValue>,
-    pub ptrs: Vec<VMPtrRValue<V>>,
-}
-
-impl<V> VMRValues<V> {
-    fn count(&self) -> Counts {
-        Counts {
-            words: self.words.len(),
-            ptrs: self.ptrs.len(),
-        }
-    }
-    fn map<V2>(self, mapper: &impl VarMapper<V, V2>) -> Result<VMRValues<V2>, String> {
-        Ok(VMRValues {
-            words: self.words,
-            ptrs: self.ptrs.into_iter().map(|p| p.map(mapper)).collect::<Result<Vec<_>, _>>()?,
-        })
-    }
-}
-
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 pub enum VMStatement<V> {
-    SetWord(VMWordLValue, VMWordRValue),
-    SetPtr(VMPtrLValue, VMPtrRValue<V>),
-    Call(V, V, VMLValues, VMRValues<V>), // module, function, returns, args
-    CallPtr(VMPtrLValue, VMLValues, VMRValues<V>), // function, return, args
-    Return(VMRValues<V>),
-    If(VMWordRValue, Box<VMStatement<V>>),
-    Block(Vec<VMStatement<V>>), // loop construct, need to continue/break manually
-    Continue(usize), // start of block, outermost is 0
-    Break(usize)     // end of block, outermost is 0
+    DelWord,
+    DelPtr,
+    PopWord(usize),
+    PopPtr(usize),
+    PushWord(usize),
+    PushPtr(usize),
+    SwapPtr(usize),
+    Null,
+    FunPtr(V, V),
+    ConstWord(u64),
+    WordUn(WordUnOp),
+    WordBin(WordBinOp),
+    PtrTag,
+    PtrLengthWord,
+    PtrLengthPtr,
+    AllocPtr,
+    GetWordAt,
+    GetPtrAt,
+    SetWordAt,
+    SetPtrAt,
+    SwapPtrAt,
+    Call(V, V),
+    CallPtr(usize, usize, usize, usize),
+    If(Vec<VMStatement<V>>, Vec<VMStatement<V>>),
+                                                  
+    // loop? continue? break? return?
+}
+
+pub trait VMProcedureTyper<V> {
+    fn args_rets(&self, module: &V, proc: &V) -> Result<(Counts, Counts), String>;
+}
+
+pub trait VMVarMapper<V1, V2> {
+    fn map_module(&self, module: &V1) -> Result<V2, String>;
+    fn map_procedure(&self, module: &V1, proc: &V1) -> Result<V2, String>;
 }
 
 impl<V> VMStatement<V> {
-    fn map<V2>(self, mapper: &impl VarMapper<V, V2>) -> Result<VMStatement<V2>, String> {
+    pub fn stack_type(&self, typer: &impl VMProcedureTyper<V>) -> Result<(Counts, Counts), String> {
+        // counts of args, counts of rets
         Ok(match self {
-            VMStatement::SetPtr(lvalue, rvalue) => VMStatement::SetPtr(lvalue, rvalue.map(mapper)?),
-            VMStatement::Call(module, function, returns, args) => {
-                let fun_module = mapper.get_module(&module)?;
-                let fun_proc = mapper.get_procedure(&fun_module, &function)?;
-                VMStatement::Call(
-                    fun_module,
-                    fun_proc,
-                    returns,
-                    args.map(mapper)?)
-            },
-            VMStatement::SetWord(a, b) => VMStatement::SetWord(a, b),
-            VMStatement::CallPtr(a, b, c) => VMStatement::CallPtr(a, b, c.map(mapper)?),
-            VMStatement::Return(a) => VMStatement::Return(a.map(mapper)?),
-            VMStatement::If(a, b) => VMStatement::If(a, Box::new(b.map(mapper)?)),
-            VMStatement::Block(a) => VMStatement::Block(a.into_iter().map(|s| s.map(mapper)).collect::<Result<Vec<_>, _>>()?),
-            VMStatement::Continue(a) => VMStatement::Continue(a),
-            VMStatement::Break(a) => VMStatement::Break(a),
+            Self::DelWord => (Counts { words: 1, ptrs: 0 }, Counts::zero()),
+            Self::DelPtr => (Counts { words: 0, ptrs: 1 }, Counts::zero()),
+            Self::PopWord(_) => (Counts { words: 1, ptrs: 0 }, Counts::zero()),
+            Self::PopPtr(_) => (Counts { words: 0, ptrs: 1 }, Counts::zero()),
+            Self::PushWord(_) => (Counts::zero(), Counts { words: 1, ptrs: 0 }),
+            Self::PushPtr(_) => (Counts::zero(), Counts { words: 0, ptrs: 1 }),
+            Self::SwapPtr(_) => (Counts { words: 0, ptrs: 1 }, Counts { words: 0, ptrs: 1 }),
+            Self::Null => (Counts::zero(), Counts { words: 0, ptrs: 1 }),
+            Self::FunPtr(_, _) => (Counts::zero(), Counts { words: 0, ptrs: 1 }),
+            Self::ConstWord(_) => (Counts::zero(), Counts { words: 1, ptrs: 0 }),
+            Self::WordUn(_) => (Counts { words: 1, ptrs: 0 }, Counts { words: 1, ptrs: 0 }),
+            Self::WordBin(_) => (Counts { words: 2, ptrs: 0 }, Counts { words: 1, ptrs: 0 }),
+            Self::PtrTag => (Counts { words: 0, ptrs: 1 }, Counts { words: 1, ptrs: 1 }),
+            Self::PtrLengthWord => (Counts { words: 0, ptrs: 1 }, Counts { words: 1, ptrs: 1 }),
+            Self::PtrLengthPtr => (Counts { words: 0, ptrs: 1 }, Counts { words: 1, ptrs: 1 }),
+            Self::AllocPtr => (Counts { words: 2, ptrs: 0 }, Counts { words: 0, ptrs: 1 }),
+            Self::GetWordAt => (Counts { words: 1, ptrs: 1 }, Counts { words: 1, ptrs: 1 }),
+            Self::GetPtrAt => (Counts { words: 1, ptrs: 1 }, Counts { words: 0, ptrs: 2 }),
+            Self::SetWordAt => (Counts { words: 2, ptrs: 1 }, Counts { words: 0, ptrs: 1 }),
+            Self::SetPtrAt => (Counts { words: 1, ptrs: 2 }, Counts { words: 0, ptrs: 1 }),
+            Self::SwapPtrAt => (Counts { words: 1, ptrs: 2 }, Counts { words: 0, ptrs: 2 }),
+            Self::Call(module, proc) => typer.args_rets(module, proc)?,
+            Self::CallPtr(a, b, c, d) => (Counts { words: *a, ptrs: *b }, Counts { words: *c, ptrs: *d }),
+            Self::If(thn, els) => {
+                let (thn_arg, thn_ret) = Self::total_stack_type(thn, typer)?;
+                let (els_arg, els_ret) = Self::total_stack_type(els, typer)?;
+                if thn_ret - thn_arg != els_ret - els_arg {
+                    return Err("if branches have different stack types".to_string());
+                }
+                (thn_arg.max(els_arg), thn_ret.max(els_ret))
+            }
         })
+    }
+    pub fn total_stack_type(stmts: &Vec<VMStatement<V>>, typer: &impl VMProcedureTyper<V>) -> Result<(Counts, Counts), String> {
+        let mut net_stack = Counts::zero();
+        let mut min_stack = Counts::zero();
+        for stmt in stmts {
+            let (pop, push) = stmt.stack_type(typer)?;
+            let popped = net_stack - pop;
+            net_stack = popped + push;
+            min_stack = min_stack.min(popped);
+        }
+        Ok((Counts::zero() - min_stack, min_stack + net_stack))
+    }
+    pub fn map<V2>(&self, mapper: &impl VMVarMapper<V, V2>) -> Result<VMStatement<V2>, String> {
+        Ok(match self {
+            Self::DelWord => VMStatement::DelWord,
+            Self::DelPtr => VMStatement::DelPtr,
+            Self::PopWord(i) => VMStatement::PopWord(*i),
+            Self::PopPtr(i) => VMStatement::PopPtr(*i),
+            Self::PushWord(i) => VMStatement::PushWord(*i),
+            Self::PushPtr(i) => VMStatement::PushPtr(*i),
+            Self::SwapPtr(i) => VMStatement::SwapPtr(*i),
+            Self::Null => VMStatement::Null,
+            Self::FunPtr(module, proc) => {
+                let m = mapper.map_module(module)?;
+                let p = mapper.map_procedure(module, proc)?;
+                VMStatement::FunPtr(m, p)
+            },
+            Self::ConstWord(w) => VMStatement::ConstWord(*w),
+            Self::WordUn(op) => VMStatement::WordUn(*op),
+            Self::WordBin(op) => VMStatement::WordBin(*op),
+            Self::PtrTag => VMStatement::PtrTag,
+            Self::PtrLengthWord => VMStatement::PtrLengthWord,
+            Self::PtrLengthPtr => VMStatement::PtrLengthPtr,
+            Self::AllocPtr => VMStatement::AllocPtr,
+            Self::GetWordAt => VMStatement::GetWordAt,
+            Self::GetPtrAt => VMStatement::GetPtrAt,
+            Self::SetWordAt => VMStatement::SetWordAt,
+            Self::SetPtrAt => VMStatement::SetPtrAt,
+            Self::SwapPtrAt => VMStatement::SwapPtrAt,
+            Self::Call(module, proc) => {
+                let m = mapper.map_module(module)?;
+                let p = mapper.map_procedure(module, proc)?;
+                VMStatement::Call(m, p)
+            },
+            Self::CallPtr(a, b, c, d) => VMStatement::CallPtr(*a, *b, *c, *d),
+            Self::If(thn, els) => VMStatement::If(Self::multi_map(thn, mapper)?, Self::multi_map(els, mapper)?),
+        })
+    }
+    pub fn multi_map<V2>(stmts: &Vec<VMStatement<V>>, mapper: &impl VMVarMapper<V, V2>) -> Result<Vec<VMStatement<V2>>, String> {
+        let mut result = Vec::new();
+        for stmt in stmts {
+            result.push(stmt.map(mapper)?);
+        }
+        Ok(result)
+    }
+    pub fn max_locals(&self) -> Counts {
+        match self {
+            Self::PopWord(i) => Counts { words: *i, ptrs: 0 },
+            Self::PopPtr(i) => Counts { words: 0, ptrs: *i },
+            Self::PushWord(i) => Counts { words: *i, ptrs: 0 },
+            Self::PushPtr(i) => Counts { words: 0, ptrs: *i },
+            Self::SwapPtr(i) => Counts { words: 0, ptrs: *i },
+            Self::If(thn, els) => Self::multi_max_locals(thn).max(Self::multi_max_locals(els)),
+            _ => Counts::zero(),
+        }
+    }
+    pub fn multi_max_locals(stmts: &Vec<VMStatement<V>>) -> Counts {
+        let mut max = Counts::zero();
+        for stmt in stmts {
+            max = max.max(stmt.max_locals());
+        }
+        max
     }
 }
 
@@ -254,17 +280,14 @@ pub struct VMProcedure<V> {
 }
 
 impl<V> VMProcedure<V> {
-    fn map<V2>(self, mod_id: &V2, mapper: &impl VarMapper<V, V2>) -> Result<VMProcedure<V2>, String> {
-        let mut statements = Vec::new();
-        for stmt in self.statements {
-            statements.push(stmt.map(mapper)?);
-        }
+    // TODO check stack counts? local counts?
+    pub fn map<V2>(&self, module: &V, mapper: &impl VMVarMapper<V, V2>) -> Result<VMProcedure<V2>, String> {
         Ok(VMProcedure {
-            name: mapper.get_procedure(mod_id, &self.name)?,
-            local_counts: self.local_counts,
+            name: mapper.map_procedure(module, &self.name)?,
             param_counts: self.param_counts,
+            local_counts: self.local_counts,
             return_counts: self.return_counts,
-            statements,
+            statements: VMStatement::multi_map(&self.statements, mapper)?,
         })
     }
 }
@@ -272,21 +295,19 @@ impl<V> VMProcedure<V> {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 pub struct VMModule<V> {
     pub name: V,
-    pub global_counts: Counts,
     pub procedures: Vec<VMProcedure<V>>,
 }
 
 impl<V> VMModule<V> {
-    fn map<V2>(self, mapper: &impl VarMapper<V, V2>) -> Result<VMModule<V2>, String> {
-        let mod_id = mapper.get_module(&self.name)?;
+    fn map<V2>(self, mapper: &impl VMVarMapper<V, V2>) -> Result<VMModule<V2>, String> {
+        let mod_id = mapper.map_module(&self.name)?;
         let mut procedures = Vec::new();
         for proc in self.procedures {
-            procedures.push(proc.map(&mod_id, mapper)?);
+            procedures.push(proc.map(&self.name, mapper)?);
         }
         Ok(VMModule {
             name: mod_id,
-            global_counts: self.global_counts,
-            procedures,
+            procedures
         })
     }
 }
@@ -309,15 +330,15 @@ pub struct VMLibrary<V> {
 }
 
 impl<V> VMLibrary<V> {
-    fn map<V2>(self, mapper: &impl VarMapper<V, V2>) -> Result<VMLibrary<V2>, String> {
+    fn map<V2>(self, mapper: &impl VMVarMapper<V, V2>) -> Result<VMLibrary<V2>, String> {
         let mut modules = Vec::new();
         for module in self.modules {
             modules.push(module.map(mapper)?);
         }
         let mut exports = BTreeMap::new();
         for (k, v) in self.exports {
-            let mod_id = mapper.get_module(&v.0)?;
-            let proc_id = mapper.get_procedure(&mod_id, &v.1)?;
+            let mod_id = mapper.map_module(&v.0)?;
+            let proc_id = mapper.map_procedure(&v.0, &v.1)?;
             exports.insert(k, (mod_id, proc_id));
         }
         Ok(VMLibrary { modules, exports })
@@ -335,65 +356,65 @@ impl VMLibrary<usize> {
     }
 }
 
-struct VarModuleManager {
-    procedures: BTreeMap<String, usize>,
-}
-
-struct VarLibraryManager {
-    modules: BTreeMap<String, usize>,
-    module_managers: Vec<VarModuleManager>,
-}
-
-fn add_index_to_map(map: &mut BTreeMap<String, usize>, name: &str) -> usize {
-    let index = map.len();
-    if map.insert(name.to_string(), index).is_some() {
-        panic!("duplicate variable name");
-    }
-    index
-}
-
-impl VarModuleManager {
-    fn new() -> Self {
-        VarModuleManager {
-            procedures: BTreeMap::new(),
-        }
-    }
-    fn add_procedure(&mut self, name: &str) -> usize {
-        add_index_to_map(&mut self.procedures, name)
-    }
-}
-
-impl VarLibraryManager {
-    fn new() -> Self {
-        VarLibraryManager {
-            modules: BTreeMap::new(),
-            module_managers: Vec::new(),
-        }
-    }
-    fn add_module(&mut self, name: &str) -> &mut VarModuleManager {
-        add_index_to_map(&mut self.modules, &name);
-        self.module_managers.push(VarModuleManager::new());
-        self.module_managers.last_mut().unwrap()
-    }
-}
-
-impl VarMapper<String, usize> for VarLibraryManager {
-    fn get_module(&self, module: &String) -> Result<usize, String> {
-        self.modules.get(module).cloned().ok_or(format!("unknown module {}", module))
-    }
-    fn get_procedure(&self, mod_id: &usize, procedure: &String) -> Result<usize, String> {
-        let mod_man = self.module_managers.get(*mod_id).ok_or(format!("bad module index"))?;
-        mod_man.procedures.get(procedure).cloned().ok_or(format!("unknown procedure {}", procedure))
-    }
-}
-
-pub fn translate_library_vars(lib: VMLibrary<String>) -> Result<VMLibrary<usize>, String> {
-    let mut lib_manager = VarLibraryManager::new();
-    for module in &lib.modules {
-        let mut mod_manager = lib_manager.add_module(&module.name);
-        for proc in &module.procedures {
-            mod_manager.add_procedure(&proc.name);
-        }
-    }
-    lib.map(&lib_manager)
-}
+// struct VarModuleManager {
+//     procedures: BTreeMap<String, usize>,
+// }
+// 
+// struct VarLibraryManager {
+//     modules: BTreeMap<String, usize>,
+//     module_managers: Vec<VarModuleManager>,
+// }
+// 
+// fn add_index_to_map(map: &mut BTreeMap<String, usize>, name: &str) -> usize {
+//     let index = map.len();
+//     if map.insert(name.to_string(), index).is_some() {
+//         panic!("duplicate variable name");
+//     }
+//     index
+// }
+// 
+// impl VarModuleManager {
+//     fn new() -> Self {
+//         VarModuleManager {
+//             procedures: BTreeMap::new(),
+//         }
+//     }
+//     fn add_procedure(&mut self, name: &str) -> usize {
+//         add_index_to_map(&mut self.procedures, name)
+//     }
+// }
+// 
+// impl VarLibraryManager {
+//     fn new() -> Self {
+//         VarLibraryManager {
+//             modules: BTreeMap::new(),
+//             module_managers: Vec::new(),
+//         }
+//     }
+//     fn add_module(&mut self, name: &str) -> &mut VarModuleManager {
+//         add_index_to_map(&mut self.modules, &name);
+//         self.module_managers.push(VarModuleManager::new());
+//         self.module_managers.last_mut().unwrap()
+//     }
+// }
+// 
+// impl VarMapper<String, usize> for VarLibraryManager {
+//     fn get_module(&self, module: &String) -> Result<usize, String> {
+//         self.modules.get(module).cloned().ok_or(format!("unknown module {}", module))
+//     }
+//     fn get_procedure(&self, mod_id: &usize, procedure: &String) -> Result<usize, String> {
+//         let mod_man = self.module_managers.get(*mod_id).ok_or(format!("bad module index"))?;
+//         mod_man.procedures.get(procedure).cloned().ok_or(format!("unknown procedure {}", procedure))
+//     }
+// }
+// 
+// pub fn translate_library_vars(lib: VMLibrary<String>) -> Result<VMLibrary<usize>, String> {
+//     let mut lib_manager = VarLibraryManager::new();
+//     for module in &lib.modules {
+//         let mut mod_manager = lib_manager.add_module(&module.name);
+//         for proc in &module.procedures {
+//             mod_manager.add_procedure(&proc.name);
+//         }
+//     }
+//     lib.map(&lib_manager)
+// }
