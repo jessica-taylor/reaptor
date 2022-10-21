@@ -345,6 +345,21 @@ impl<V> VMLibrary<V> {
     }
 }
 
+impl<V: Eq> VMProcedureTyper<V> for VMLibrary<V> {
+    fn args_rets(&self, module: &V, proc: &V) -> Result<(Counts, Counts), String> {
+        for m in &self.modules {
+            if m.name == *module {
+                for p in &m.procedures {
+                    if p.name == *proc {
+                        return Ok((p.param_counts, p.return_counts));
+                    }
+                }
+            }
+        }
+        return Err("procedure not found".to_string());
+    }
+}
+
 impl VMLibrary<usize> {
     fn modules_ascending(&self) -> bool {
         for i in 0..self.modules.len() {
