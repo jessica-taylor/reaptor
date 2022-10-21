@@ -272,7 +272,6 @@ impl<V> VMStatement<V> {
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 pub struct VMProcedure<V> {
-    pub name: V,
     pub param_counts: Counts,
     pub local_counts: Counts,
     pub return_counts: Counts, // must be <= param_counts + local_counts
@@ -281,9 +280,8 @@ pub struct VMProcedure<V> {
 
 impl<V> VMProcedure<V> {
     // TODO check stack counts? local counts?
-    pub fn map<V2>(&self, module: &V, mapper: &impl VMVarMapper<V, V2>) -> Result<VMProcedure<V2>, String> {
+    pub fn map<V2>(&self, mapper: &impl VMVarMapper<V, V2>) -> Result<VMProcedure<V2>, String> {
         Ok(VMProcedure {
-            name: mapper.map_procedure(module, &self.name)?,
             param_counts: self.param_counts,
             local_counts: self.local_counts,
             return_counts: self.return_counts,
@@ -293,47 +291,33 @@ impl<V> VMProcedure<V> {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-pub struct VMModule<V> {
-    pub name: V,
-    pub procedures: Vec<VMProcedure<V>>,
+pub struct VMModule<V: Ord> {
+    pub procedures: BTreeMap<V, VMProcedure<V>>,
 }
 
-impl<V> VMModule<V> {
-    fn map<V2>(self, mapper: &impl VMVarMapper<V, V2>) -> Result<VMModule<V2>, String> {
-        let mod_id = mapper.map_module(&self.name)?;
-        let mut procedures = Vec::new();
-        for proc in self.procedures {
-            procedures.push(proc.map(&self.name, mapper)?);
+impl<V: Ord> VMModule<V> {
+    fn map<V2: Ord>(self, mod_name: &V, mapper: &impl VMVarMapper<V, V2>) -> Result<VMModule<V2>, String> {
+        let mut procedures = BTreeMap::new();
+        for (name, proc) in self.procedures {
+            procedures.insert(mapper.map_procedure(&mod_name, &name)?, proc.map(mapper)?);
         }
         Ok(VMModule {
-            name: mod_id,
             procedures
         })
     }
 }
 
-impl VMModule<usize> {
-    pub fn procedures_ascending(&self) -> bool {
-        for i in 0..self.procedures.len() {
-            if self.procedures[i].name != i {
-                return false;
-            }
-        }
-        true
-    }
-}
-
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-pub struct VMLibrary<V> {
-    pub modules: Vec<VMModule<V>>,
+pub struct VMLibrary<V: Ord> {
+    pub modules: BTreeMap<V, VMModule<V>>,
     pub exports: BTreeMap<String, (V, V)>,
 }
 
-impl<V> VMLibrary<V> {
-    fn map<V2>(self, mapper: &impl VMVarMapper<V, V2>) -> Result<VMLibrary<V2>, String> {
-        let mut modules = Vec::new();
-        for module in self.modules {
-            modules.push(module.map(mapper)?);
+impl<V: Ord> VMLibrary<V> {
+    fn map<V2: Ord>(self, mapper: &impl VMVarMapper<V, V2>) -> Result<VMLibrary<V2>, String> {
+        let mut modules = BTreeMap::new();
+        for (mod_name, module) in self.modules {
+            modules.insert(mapper.map_module(&mod_name)?, module.map(&mod_name, mapper)?);
         }
         let mut exports = BTreeMap::new();
         for (k, v) in self.exports {
@@ -345,29 +329,11 @@ impl<V> VMLibrary<V> {
     }
 }
 
-impl<V: Eq> VMProcedureTyper<V> for VMLibrary<V> {
+impl<V: Ord> VMProcedureTyper<V> for VMLibrary<V> {
     fn args_rets(&self, module: &V, proc: &V) -> Result<(Counts, Counts), String> {
-        for m in &self.modules {
-            if m.name == *module {
-                for p in &m.procedures {
-                    if p.name == *proc {
-                        return Ok((p.param_counts, p.return_counts));
-                    }
-                }
-            }
-        }
-        return Err("procedure not found".to_string());
-    }
-}
-
-impl VMLibrary<usize> {
-    fn modules_ascending(&self) -> bool {
-        for i in 0..self.modules.len() {
-            if self.modules[i].name != i {
-                return false;
-            }
-        }
-        true
+        let module = self.modules.get(module).ok_or(format!("module not found"))?;
+        let proc = module.procedures.get(proc).ok_or(format!("procedure not found"))?;
+        Ok((proc.param_counts, proc.return_counts))
     }
 }
 
