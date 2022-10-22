@@ -305,7 +305,6 @@ impl<'a> Interpreter<'a> {
                 }
             }
             VMStatement::SetWordAt => {
-                // TODO cow
                 let v = self.word_stack.pop().ok_or("No word")?;
                 let p = self.ptr_stack.last_mut().ok_or("No ptr")?;
                 let ix = self.word_stack.pop().ok_or("No word")?;
@@ -317,7 +316,6 @@ impl<'a> Interpreter<'a> {
                 }
             }
             VMStatement::SetPtrAt => {
-                // TODO cow
                 let v = self.ptr_stack.pop().ok_or("No ptr")?;
                 let p = self.ptr_stack.last_mut().ok_or("No ptr")?;
                 let ix = self.word_stack.pop().ok_or("No word")?;
@@ -329,7 +327,6 @@ impl<'a> Interpreter<'a> {
                 }
             }
             VMStatement::SwapPtrAt => {
-                // TODO cow
                 let mut v = self.ptr_stack.pop().ok_or("No ptr")?;
                 let p = self.ptr_stack.last_mut().ok_or("No ptr")?;
                 let ix = self.word_stack.pop().ok_or("No word")?;
