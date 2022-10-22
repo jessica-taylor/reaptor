@@ -226,19 +226,19 @@ impl<'a> Interpreter<'a> {
                 self.ptr_stack.pop().ok_or("No ptr")?;
             }
             VMStatement::PopWord(w) => {
-                call_frame.local_words[*w] = self.word_stack.pop().ok_or("No word")?;
+                *call_frame.local_words.get_mut(*w).ok_or(format!("bad local index"))? = self.word_stack.pop().ok_or("No word")?;
             }
             VMStatement::PopPtr(p) => {
-                call_frame.local_ptrs[*p] = self.ptr_stack.pop().ok_or("No ptr")?;
+                *call_frame.local_ptrs.get_mut(*p).ok_or(format!("bad local index"))? = self.ptr_stack.pop().ok_or("No ptr")?;
             }
             VMStatement::PushWord(w) => {
-                self.word_stack.push(call_frame.local_words[*w]);
+                self.word_stack.push(*call_frame.local_words.get(*w).ok_or(format!("bad local index"))?);
             }
             VMStatement::PushPtr(p) => {
-                self.ptr_stack.push(call_frame.local_ptrs[*p].clone());
+                self.ptr_stack.push(call_frame.local_ptrs.get(*p).ok_or(format!("bad local index"))?.clone());
             }
             VMStatement::SwapPtr(w) => {
-                std::mem::swap(self.ptr_stack.last_mut().ok_or("No word")?, &mut call_frame.local_ptrs[*w]);
+                std::mem::swap(self.ptr_stack.last_mut().ok_or("No word")?, call_frame.local_ptrs.get_mut(*w).ok_or(format!("bad local index"))?);
             }
             VMStatement::Null => {
                 self.ptr_stack.push(PtrIValue::Null);
@@ -289,7 +289,7 @@ impl<'a> Interpreter<'a> {
                 let ix = self.word_stack.pop().ok_or("No word")?;
                 match p {
                     PtrIValue::Rc(r) => {
-                        self.word_stack.push(r.words[ix.0 as usize]);
+                        self.word_stack.push(*r.words.get(ix.0 as usize).ok_or("Bad index")?);
                     }
                     _ => return Err("Not an Rc".to_string()),
                 }
@@ -299,7 +299,7 @@ impl<'a> Interpreter<'a> {
                 let ix = self.word_stack.pop().ok_or("No word")?;
                 match p {
                     PtrIValue::Rc(r) => {
-                        self.ptr_stack.push(r.ptrs[ix.0 as usize].clone());
+                        self.ptr_stack.push(r.ptrs.get(ix.0 as usize).ok_or("Bad index")?.clone());
                     }
                     _ => return Err("Not an Rc".to_string()),
                 }
@@ -310,7 +310,7 @@ impl<'a> Interpreter<'a> {
                 let ix = self.word_stack.pop().ok_or("No word")?;
                 match p {
                     PtrIValue::Rc(r) => {
-                        Rc::make_mut(r).words[ix.0 as usize] = v;
+                        *Rc::make_mut(r).words.get_mut(ix.0 as usize).ok_or("Bad index")? = v;
                     }
                     _ => return Err("Not an Rc".to_string()),
                 }
@@ -321,7 +321,7 @@ impl<'a> Interpreter<'a> {
                 let ix = self.word_stack.pop().ok_or("No word")?;
                 match p {
                     PtrIValue::Rc(r) => {
-                        Rc::make_mut(r).ptrs[ix.0 as usize] = v;
+                        *Rc::make_mut(r).ptrs.get_mut(ix.0 as usize).ok_or("Bad index")? = v;
                     }
                     _ => return Err("Not an Rc".to_string()),
                 }
@@ -332,7 +332,7 @@ impl<'a> Interpreter<'a> {
                 let ix = self.word_stack.pop().ok_or("No word")?;
                 match p {
                     PtrIValue::Rc(r) => {
-                        std::mem::swap(&mut v, &mut Rc::make_mut(r).ptrs[ix.0 as usize]);
+                        std::mem::swap(&mut v, Rc::make_mut(r).ptrs.get_mut(ix.0 as usize).ok_or("Bad index")?);
                     }
                     _ => return Err("Not an Rc".to_string()),
                 }
@@ -374,7 +374,6 @@ impl<'a> Interpreter<'a> {
                     call_frame.block_frames.push((els, 0));
                 }
             }
-            _ => unimplemented!(),
         }
         Ok(())
     }
