@@ -226,19 +226,19 @@ impl<'a> Interpreter<'a> {
                 self.ptr_stack.pop().ok_or("No ptr")?;
             }
             VMStatement::PopWord(w) => {
-                *call_frame.local_words.get_mut(*w).ok_or(format!("bad local index"))? = self.word_stack.pop().ok_or("No word")?;
+                *call_frame.local_words.get_mut(*w).ok_or("bad local index")? = self.word_stack.pop().ok_or("No word")?;
             }
             VMStatement::PopPtr(p) => {
-                *call_frame.local_ptrs.get_mut(*p).ok_or(format!("bad local index"))? = self.ptr_stack.pop().ok_or("No ptr")?;
+                *call_frame.local_ptrs.get_mut(*p).ok_or("bad local index")? = self.ptr_stack.pop().ok_or("No ptr")?;
             }
             VMStatement::PushWord(w) => {
-                self.word_stack.push(*call_frame.local_words.get(*w).ok_or(format!("bad local index"))?);
+                self.word_stack.push(*call_frame.local_words.get(*w).ok_or("bad local index")?);
             }
             VMStatement::PushPtr(p) => {
-                self.ptr_stack.push(call_frame.local_ptrs.get(*p).ok_or(format!("bad local index"))?.clone());
+                self.ptr_stack.push(call_frame.local_ptrs.get(*p).ok_or("bad local index")?.clone());
             }
             VMStatement::SwapPtr(w) => {
-                std::mem::swap(self.ptr_stack.last_mut().ok_or("No word")?, call_frame.local_ptrs.get_mut(*w).ok_or(format!("bad local index"))?);
+                std::mem::swap(self.ptr_stack.last_mut().ok_or("No word")?, call_frame.local_ptrs.get_mut(*w).ok_or("bad local index")?);
             }
             VMStatement::Null => {
                 self.ptr_stack.push(PtrIValue::Null);
