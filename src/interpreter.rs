@@ -1,406 +1,384 @@
-// use std::collections::BTreeMap;
-// use std::default::Default;
-// use std::rc::Rc;
-// use std::cell::RefCell;
-// 
-// use serde::{Deserialize, Serialize};
-// 
-// use crate::assembly::{Counts, VMWordLValue, VMPtrLValue, VMWordRValue, VMPtrRValue, VMStatement, VMProcedure, VMModule, VMLibrary, WordUnOp, WordBinOp};
-// 
-// 
-// #[derive(Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, Serialize, Deserialize)]
-// struct WordIValue(u64);
-// 
-// #[derive(Clone)]
-// enum PtrIValue {
-//     Null,
-//     Fun(usize, usize),
-//     Rc(Rc<RefCell<IValues>>),
-// }
-// 
-// impl Default for PtrIValue {
-//     fn default() -> Self {
-//         PtrIValue::Null
-//     }
-// }
-// 
-// impl PartialEq for PtrIValue {
-//     fn eq(&self, other: &Self) -> bool {
-//         match (self, other) {
-//             (PtrIValue::Null, PtrIValue::Null) => true,
-//             (PtrIValue::Fun(a, b), PtrIValue::Fun(c, d)) => a == c && b == d,
-//             (PtrIValue::Rc(a), PtrIValue::Rc(b)) => Rc::ptr_eq(a, b),
-//             _ => false,
-//         }
-//     }
-// }
-// 
-// impl Eq for PtrIValue {}
-// 
-// #[derive(Default, Clone, Eq, PartialEq)]
-// struct IValues {
-//     words: Vec<WordIValue>,
-//     ptrs: Vec<PtrIValue>,
-// }
-// 
-// impl IValues {
-//     fn new(counts: &Counts) -> Self {
-//         IValues {
-//             words: vec![WordIValue::default(); counts.words],
-//             ptrs: vec![PtrIValue::default(); counts.ptrs],
-//         }
-//     }
-// }
-// 
-// enum WordIRef<'a> {
-//     Direct(&'a mut WordIValue),
-//     Rc(Rc<RefCell<IValues>>, usize),
-// }
-// 
-// impl<'a> WordIRef<'a> {
-//     fn get(&self) -> WordIValue {
-//         match self {
-//             WordIRef::Direct(x) => **x,
-//             WordIRef::Rc(x, y) => x.borrow().words[*y],
-//         }
-//     }
-//     fn set(&mut self, value: WordIValue) {
-//         match self {
-//             WordIRef::Direct(x) => **x = value,
-//             WordIRef::Rc(x, y) => x.borrow_mut().words[*y] = value,
-//         }
-//     }
-// }
-// 
-// enum PtrIRef<'a> {
-//     Direct(&'a mut PtrIValue),
-//     Rc(Rc<RefCell<IValues>>, usize),
-// }
-// 
-// impl<'a> PtrIRef<'a> {
-//     fn get(&self) -> PtrIValue {
-//         match self {
-//             PtrIRef::Direct(x) => (*x).clone(),
-//             PtrIRef::Rc(x, y) => x.borrow().ptrs[*y].clone(),
-//         }
-//     }
-//     fn set(&mut self, value: PtrIValue) {
-//         match self {
-//             PtrIRef::Direct(x) => **x = value,
-//             PtrIRef::Rc(x, y) => x.borrow_mut().ptrs[*y] = value,
-//         }
-//     }
-// }
-// 
-// fn eval_word_unop(op: WordUnOp, val: WordIValue) -> WordIValue {
-//     match op {
-//         WordUnOp::Neg => WordIValue(-(val.0 as i64) as u64),
-//         WordUnOp::Not => WordIValue(!val.0),
-//     }
-// }
-// 
-// fn bool_to_word(b: bool) -> WordIValue {
-//     WordIValue((b as u64) * u64::MAX)
-// }
-// 
-// fn eval_word_binop(op: WordBinOp, lhs: WordIValue, rhs: WordIValue) -> Result<WordIValue, String> {
-//     Ok(match op {
-//         WordBinOp::Add(signed, checked) => {
-//             if signed {
-//                 if checked {
-//                     WordIValue((lhs.0 as i64).checked_add(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
-//                 } else {
-//                     WordIValue((lhs.0 as i64).wrapping_add(rhs.0 as i64) as u64)
-//                 }
-//             } else {
-//                 if checked {
-//                     WordIValue(lhs.0.checked_add(rhs.0).ok_or("overflow".to_string())?)
-//                 } else {
-//                     WordIValue(lhs.0.wrapping_add(rhs.0))
-//                 }
-//             }
-//         }
-//         WordBinOp::Sub(signed, checked) => {
-//             if signed {
-//                 if checked {
-//                     WordIValue((lhs.0 as i64).checked_sub(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
-//                 } else {
-//                     WordIValue((lhs.0 as i64).wrapping_sub(rhs.0 as i64) as u64)
-//                 }
-//             } else {
-//                 if checked {
-//                     WordIValue(lhs.0.checked_sub(rhs.0).ok_or("overflow".to_string())?)
-//                 } else {
-//                     WordIValue(lhs.0.wrapping_sub(rhs.0))
-//                 }
-//             }
-//         }
-//         WordBinOp::Mul(signed, checked) => {
-//             if signed {
-//                 if checked {
-//                     WordIValue((lhs.0 as i64).checked_mul(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
-//                 } else {
-//                     WordIValue((lhs.0 as i64).wrapping_mul(rhs.0 as i64) as u64)
-//                 }
-//             } else {
-//                 if checked {
-//                     WordIValue(lhs.0.checked_mul(rhs.0).ok_or("overflow".to_string())?)
-//                 } else {
-//                     WordIValue(lhs.0.wrapping_mul(rhs.0))
-//                 }
-//             }
-//         }
-//         WordBinOp::Div(signed, checked) => {
-//             if signed {
-//                 if checked {
-//                     WordIValue((lhs.0 as i64).checked_div(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
-//                 } else {
-//                     WordIValue((lhs.0 as i64).wrapping_div(rhs.0 as i64) as u64)
-//                 }
-//             } else {
-//                 if checked {
-//                     WordIValue(lhs.0.checked_div(rhs.0).ok_or("overflow".to_string())?)
-//                 } else {
-//                     WordIValue(lhs.0.wrapping_div(rhs.0))
-//                 }
-//             }
-//         }
-//         WordBinOp::Mod(signed, checked) => {
-//             if signed {
-//                 if checked {
-//                     WordIValue((lhs.0 as i64).checked_rem(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
-//                 } else {
-//                     WordIValue((lhs.0 as i64).wrapping_rem(rhs.0 as i64) as u64)
-//                 }
-//             } else {
-//                 if checked {
-//                     WordIValue(lhs.0.checked_rem(rhs.0).ok_or("overflow".to_string())?)
-//                 } else {
-//                     WordIValue(lhs.0.wrapping_rem(rhs.0))
-//                 }
-//             }
-//         }
-//         WordBinOp::And => WordIValue(lhs.0 & rhs.0),
-//         WordBinOp::Or => WordIValue(lhs.0 | rhs.0),
-//         WordBinOp::Xor => WordIValue(lhs.0 ^ rhs.0),
-//         WordBinOp::Shl => WordIValue(lhs.0 << rhs.0),
-//         WordBinOp::Shr => WordIValue(lhs.0 >> rhs.0),
-//         WordBinOp::Eq => bool_to_word(lhs.0 == rhs.0),
-//         WordBinOp::Ne => bool_to_word(lhs.0 != rhs.0),
-//         WordBinOp::Lt(signed) => {
-//             if signed {
-//                 bool_to_word((lhs.0 as i64) < (rhs.0 as i64))
-//             } else {
-//                 bool_to_word(lhs.0 < rhs.0)
-//             }
-//         }
-//         WordBinOp::Le(signed) => {
-//             if signed {
-//                 bool_to_word((lhs.0 as i64) <= (rhs.0 as i64))
-//             } else {
-//                 bool_to_word(lhs.0 <= rhs.0)
-//             }
-//         }
-//         WordBinOp::Gt(signed) => {
-//             if signed {
-//                 bool_to_word((lhs.0 as i64) > (rhs.0 as i64))
-//             } else {
-//                 bool_to_word(lhs.0 > rhs.0)
-//             }
-//         }
-//         WordBinOp::Ge(signed) => {
-//             if signed {
-//                 bool_to_word((lhs.0 as i64) >= (rhs.0 as i64))
-//             } else {
-//                 bool_to_word(lhs.0 >= rhs.0)
-//             }
-//         }
-//     })
-// }
-// 
-// 
-// struct ProcedureInterpreter<'a> {
-//     procedure: &'a VMProcedure<usize>,
-//     locals: IValues,
-//     block_frames: Vec<(&'a Vec<VMStatement<usize>>, usize)>,
-//     returns: Option<IValues>,
-// }
-// 
-// struct ModuleInterpreter<'a> {
-//     module: &'a VMModule<usize>,
-//     globals: IValues,
-// }
-// 
-// struct LibraryInterpreter<'a> {
-//     library: &'a VMLibrary<usize>,
-//     modules: Vec<ModuleInterpreter<'a>>,
-//     stack: Vec<ProcedureInterpreter<'a>>,
-// }
-// 
-// impl<'a> ProcedureInterpreter<'a> {
-//     fn new(procedure: &'a VMProcedure<usize>) -> Self {
-//         Self {
-//             procedure,
-//             locals: IValues::new(&procedure.local_counts),
-//             block_frames: vec![(&procedure.statements, 0)],
-//             returns: None
-//         }
-//     }
-//     fn eval_word_rvalue(&mut self, lib: &LibraryInterpreter<'a>, module: &mut ModuleInterpreter<'a>, rvalue: &VMWordRValue) -> Result<WordIValue, String> {
-//         match rvalue {
-//             VMWordRValue::Const(v) => Ok(WordIValue(*v)),
-//             VMWordRValue::Copy(lval) => Ok(self.eval_word_lvalue(lib, module, lval)?.get()),
-//             VMWordRValue::PtrTag(lval) => {
-//                 let ptr = self.eval_ptr_lvalue(lib, module, lval)?.get();
-//                 Ok(match ptr {
-//                     PtrIValue::Null => WordIValue(0),
-//                     PtrIValue::Fun(_, _) => WordIValue(1),
-//                     PtrIValue::Rc(_) => WordIValue(2),
-//                 })
-//             },
-//             VMWordRValue::PtrLengthWord(lval) =>  {
-//                 let ptr = self.eval_ptr_lvalue(lib, module, lval)?.get();
-//                 Ok(match ptr {
-//                     PtrIValue::Null => WordIValue(0),
-//                     PtrIValue::Fun(_, _) => WordIValue(0),
-//                     PtrIValue::Rc(rc) => WordIValue(rc.borrow().words.len() as u64),
-//                 })
-//             },
-//             VMWordRValue::PtrLengthPtr(lval) => {
-//                 let ptr = self.eval_ptr_lvalue(lib, module, lval)?.get();
-//                 Ok(match ptr {
-//                     PtrIValue::Null => WordIValue(0),
-//                     PtrIValue::Fun(_, _) => WordIValue(0),
-//                     PtrIValue::Rc(rc) => WordIValue(rc.borrow().ptrs.len() as u64),
-//                 })
-//             },
-//             VMWordRValue::UnOp(op, rhs) => {
-//                 let rhs = self.eval_word_rvalue(lib, module, rhs)?;
-//                 Ok(eval_word_unop(*op, rhs))
-//             },
-//             VMWordRValue::BinOp(op, lhs, rhs) => {
-//                 let lhs = self.eval_word_rvalue(lib, module, lhs)?;
-//                 let rhs = self.eval_word_rvalue(lib, module, rhs)?;
-//                 eval_word_binop(*op, lhs, rhs)
-//             },
-//         }
-//     }
-//     fn eval_ptr_rvalue(&mut self, lib: &LibraryInterpreter<'a>, module: &mut ModuleInterpreter<'a>, rvalue: &VMPtrRValue<usize>) -> Result<PtrIValue, String> {
-//         match rvalue {
-//             VMPtrRValue::Null => Ok(PtrIValue::Null),
-//             VMPtrRValue::Copy(lval) => Ok(self.eval_ptr_lvalue(lib, module, lval)?.get()),
-//             VMPtrRValue::FunPtr(module_idx, procedure_idx) => {
-//                 if *module_idx >= lib.modules.len() {
-//                     return Err("invalid module index".to_string());
-//                 }
-//                 if *procedure_idx >= lib.modules[*module_idx].module.procedures.len() {
-//                     return Err("invalid procedure index".to_string());
-//                 }
-//                 Ok(PtrIValue::Fun(*module_idx, *procedure_idx))
-//             },
-//             VMPtrRValue::Alloc(len_w, len_p) => {
-//                 let WordIValue(len_w) = self.eval_word_rvalue(lib, module, len_w)?;
-//                 let WordIValue(len_p) = self.eval_word_rvalue(lib, module, len_p)?;
-//                 let rc = Rc::new(RefCell::new(IValues::new(&Counts {
-//                     words: len_w as usize,
-//                     ptrs: len_p as usize
-//                 })));
-//                 Ok(PtrIValue::Rc(rc))
-//             },
-//         }
-//     }
-//     fn eval_word_lvalue<'b>(&'b mut self, lib: &'b LibraryInterpreter<'a>, module: &'b mut ModuleInterpreter<'a>, lvalue: &VMWordLValue) -> Result<WordIRef<'b>, String> {
-//         match lvalue {
-//             VMWordLValue::Local(idx) => {
-//                 let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx)?;
-//                 Ok(WordIRef::Direct(&mut self.locals.words[ix as usize]))
-//             },
-//             VMWordLValue::Global(idx) => {
-//                 let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx)?;
-//                 Ok(WordIRef::Direct(&mut module.globals.words[ix as usize]))
-//             },
-//             VMWordLValue::Index(lval, idx) => {
-//                 let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx)?;
-//                 let ptr = self.eval_ptr_lvalue(lib, module, lval)?.get();
-//                 match ptr {
-//                     PtrIValue::Null => Err("null pointer".to_string()),
-//                     PtrIValue::Fun(_, _) => Err("function pointer".to_string()),
-//                     PtrIValue::Rc(rc) => Ok(WordIRef::Rc(rc.clone(), ix as usize))
-//                 }
-//             },
-//         }
-//     }
-//     fn eval_ptr_lvalue<'b>(&'b mut self, lib: &'b LibraryInterpreter<'a>, module: &'b mut ModuleInterpreter<'a>, lvalue: &VMPtrLValue) -> Result<PtrIRef<'b>, String> {
-//         match lvalue {
-//             VMPtrLValue::Local(idx) => {
-//                 let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx)?;
-//                 Ok(PtrIRef::Direct(&mut self.locals.ptrs[ix as usize]))
-//             },
-//             VMPtrLValue::Global(idx) => {
-//                 let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx)?;
-//                 Ok(PtrIRef::Direct(&mut module.globals.ptrs[ix as usize]))
-//             },
-//             VMPtrLValue::Index(lval, idx) => {
-//                 let WordIValue(ix) = self.eval_word_rvalue(lib, module, idx)?;
-//                 let ptr = self.eval_ptr_lvalue(lib, module, lval)?.get();
-//                 match ptr {
-//                     PtrIValue::Null => Err("null pointer".to_string()),
-//                     PtrIValue::Fun(_, _) => Err("function pointer".to_string()),
-//                     PtrIValue::Rc(rc) => Ok(PtrIRef::Rc(rc.clone(), ix as usize))
-//                 }
-//             },
-//         }
-//     }
-//     fn eval_statement(&mut self, lib: &mut LibraryInterpreter<'a>, module: &mut ModuleInterpreter<'a>, stmt: &'a VMStatement<usize>) -> Result<(), String> {
-//         match stmt {
-//             VMStatement::SetWord(lval, rval) => {
-//                 let rval = self.eval_word_rvalue(lib, module, rval)?;
-//                 let mut lval = self.eval_word_lvalue(lib, module, lval)?;
-//                 lval.set(rval);
-//             },
-//             VMStatement::SetPtr(lval, rval) => {
-//                 let rval = self.eval_ptr_rvalue(lib, module, rval)?;
-//                 let mut lval = self.eval_ptr_lvalue(lib, module, lval)?;
-//                 lval.set(rval);
-//             },
-//             VMStatement::Call(mod_id, fun_id, args, rets) => {
-//                 // TODO
-//             },
-//             VMStatement::CallPtr(fun_ptr, args, rets) => {
-//                 // TODO
-//             },
-//             VMStatement::Return(rets) => {
-//                 let mut returns = IValues {
-//                     words: Vec::new(),
-//                     ptrs: Vec::new(),
-//                 };
-//                 for word_rvalue in &rets.words {
-//                     returns.words.push(self.eval_word_rvalue(lib, module, word_rvalue)?);
-//                 }
-//                 for ptr_rvalue in &rets.ptrs {
-//                     returns.ptrs.push(self.eval_ptr_rvalue(lib, module, ptr_rvalue)?);
-//                 }
-//                 self.returns = Some(returns);
-//             },
-//             VMStatement::If(cond, stmt) => {
-//                 let WordIValue(cond) = self.eval_word_rvalue(lib, module, cond)?;
-//                 if cond != 0 {
-//                     self.eval_statement(lib, module, stmt)?;
-//                 }
-//             },
-//             VMStatement::Block(stmts) => {
-//                 self.block_frames.push((stmts, 0));
-//             },
-//             VMStatement::Continue(usize) => {
-//                 self.block_frames.last_mut().unwrap().1 = 0;
-//             },
-//             VMStatement::Break(usize) => {
-//                 if self.block_frames.len() == 1 {
-//                     return Err("break outside loop".to_string());
-//                 }
-//                 self.block_frames.pop();
-//             },
-//         }
-//         Ok(())
-//     }
-// }
+use std::collections::BTreeMap;
+use std::default::Default;
+use std::rc::Rc;
+use std::cell::RefCell;
+
+use serde::{Deserialize, Serialize};
+
+use crate::assembly::{Counts, VMStatement, VMProcedure, VMModule, VMLibrary, WordUnOp, WordBinOp};
+
+
+#[derive(Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, Serialize, Deserialize)]
+struct WordIValue(u64);
+
+#[derive(Clone)]
+enum PtrIValue {
+    Null,
+    Rc(Rc<RefCell<IValues>>),
+    Fun(usize, usize),
+}
+
+impl Default for PtrIValue {
+    fn default() -> Self {
+        PtrIValue::Null
+    }
+}
+
+impl PartialEq for PtrIValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (PtrIValue::Null, PtrIValue::Null) => true,
+            (PtrIValue::Fun(a, b), PtrIValue::Fun(c, d)) => a == c && b == d,
+            (PtrIValue::Rc(a), PtrIValue::Rc(b)) => Rc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for PtrIValue {}
+
+impl PtrIValue {
+    fn tag(&self) -> WordIValue {
+        match self {
+            PtrIValue::Null => WordIValue(0),
+            PtrIValue::Rc(_) => WordIValue(1),
+            PtrIValue::Fun(_, _) => WordIValue(2),
+        }
+    }
+}
+
+fn eval_word_unop(op: WordUnOp, val: WordIValue) -> WordIValue {
+    match op {
+        WordUnOp::Neg => WordIValue(-(val.0 as i64) as u64),
+        WordUnOp::Not => WordIValue(!val.0),
+    }
+}
+
+fn bool_to_word(b: bool) -> WordIValue {
+    WordIValue((b as u64) * u64::MAX)
+}
+
+fn eval_word_binop(op: WordBinOp, lhs: WordIValue, rhs: WordIValue) -> Result<WordIValue, String> {
+    Ok(match op {
+        WordBinOp::Add(signed, checked) => {
+            if signed {
+                if checked {
+                    WordIValue((lhs.0 as i64).checked_add(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
+                } else {
+                    WordIValue((lhs.0 as i64).wrapping_add(rhs.0 as i64) as u64)
+                }
+            } else {
+                if checked {
+                    WordIValue(lhs.0.checked_add(rhs.0).ok_or("overflow".to_string())?)
+                } else {
+                    WordIValue(lhs.0.wrapping_add(rhs.0))
+                }
+            }
+        }
+        WordBinOp::Sub(signed, checked) => {
+            if signed {
+                if checked {
+                    WordIValue((lhs.0 as i64).checked_sub(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
+                } else {
+                    WordIValue((lhs.0 as i64).wrapping_sub(rhs.0 as i64) as u64)
+                }
+            } else {
+                if checked {
+                    WordIValue(lhs.0.checked_sub(rhs.0).ok_or("overflow".to_string())?)
+                } else {
+                    WordIValue(lhs.0.wrapping_sub(rhs.0))
+                }
+            }
+        }
+        WordBinOp::Mul(signed, checked) => {
+            if signed {
+                if checked {
+                    WordIValue((lhs.0 as i64).checked_mul(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
+                } else {
+                    WordIValue((lhs.0 as i64).wrapping_mul(rhs.0 as i64) as u64)
+                }
+            } else {
+                if checked {
+                    WordIValue(lhs.0.checked_mul(rhs.0).ok_or("overflow".to_string())?)
+                } else {
+                    WordIValue(lhs.0.wrapping_mul(rhs.0))
+                }
+            }
+        }
+        WordBinOp::Div(signed, checked) => {
+            if signed {
+                if checked {
+                    WordIValue((lhs.0 as i64).checked_div(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
+                } else {
+                    WordIValue((lhs.0 as i64).wrapping_div(rhs.0 as i64) as u64)
+                }
+            } else {
+                if checked {
+                    WordIValue(lhs.0.checked_div(rhs.0).ok_or("overflow".to_string())?)
+                } else {
+                    WordIValue(lhs.0.wrapping_div(rhs.0))
+                }
+            }
+        }
+        WordBinOp::Mod(signed, checked) => {
+            if signed {
+                if checked {
+                    WordIValue((lhs.0 as i64).checked_rem(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
+                } else {
+                    WordIValue((lhs.0 as i64).wrapping_rem(rhs.0 as i64) as u64)
+                }
+            } else {
+                if checked {
+                    WordIValue(lhs.0.checked_rem(rhs.0).ok_or("overflow".to_string())?)
+                } else {
+                    WordIValue(lhs.0.wrapping_rem(rhs.0))
+                }
+            }
+        }
+        WordBinOp::And => WordIValue(lhs.0 & rhs.0),
+        WordBinOp::Or => WordIValue(lhs.0 | rhs.0),
+        WordBinOp::Xor => WordIValue(lhs.0 ^ rhs.0),
+        WordBinOp::Shl => WordIValue(lhs.0 << rhs.0),
+        WordBinOp::Shr => WordIValue(lhs.0 >> rhs.0),
+        WordBinOp::Eq => bool_to_word(lhs.0 == rhs.0),
+        WordBinOp::Ne => bool_to_word(lhs.0 != rhs.0),
+        WordBinOp::Lt(signed) => {
+            if signed {
+                bool_to_word((lhs.0 as i64) < (rhs.0 as i64))
+            } else {
+                bool_to_word(lhs.0 < rhs.0)
+            }
+        }
+        WordBinOp::Le(signed) => {
+            if signed {
+                bool_to_word((lhs.0 as i64) <= (rhs.0 as i64))
+            } else {
+                bool_to_word(lhs.0 <= rhs.0)
+            }
+        }
+        WordBinOp::Gt(signed) => {
+            if signed {
+                bool_to_word((lhs.0 as i64) > (rhs.0 as i64))
+            } else {
+                bool_to_word(lhs.0 > rhs.0)
+            }
+        }
+        WordBinOp::Ge(signed) => {
+            if signed {
+                bool_to_word((lhs.0 as i64) >= (rhs.0 as i64))
+            } else {
+                bool_to_word(lhs.0 >= rhs.0)
+            }
+        }
+    })
+}
+
+#[derive(Default, Clone, Eq, PartialEq)]
+struct IValues {
+    words: Vec<WordIValue>,
+    ptrs: Vec<PtrIValue>,
+}
+
+impl IValues {
+    fn new(counts: &Counts) -> Self {
+        IValues {
+            words: vec![WordIValue::default(); counts.words],
+            ptrs: vec![PtrIValue::default(); counts.ptrs],
+        }
+    }
+}
+
+struct CallFrame<'a> {
+    block_frames: Vec<(&'a [VMStatement<usize>], usize)>,
+    local_words: Vec<WordIValue>,
+    local_ptrs: Vec<PtrIValue>,
+}
+
+struct Interpreter<'a> {
+    procedures: Vec<Vec<&'a VMProcedure<usize>>>,
+    word_stack: Vec<WordIValue>,
+    ptr_stack: Vec<PtrIValue>,
+    call_stack: Vec<CallFrame<'a>>,
+}
+
+impl<'a> Interpreter<'a> {
+    fn done(&self) -> bool {
+        self.call_stack.is_empty()
+    }
+    fn step(&mut self) -> Result<(), String> {
+        let call_frame = self.call_stack.last_mut().ok_or("No frame")?;
+        if call_frame.block_frames.is_empty() {
+            self.call_stack.pop();
+            return Ok(());
+        }
+        let block_frame = call_frame.block_frames.last_mut().ok_or("No block")?;
+        if block_frame.1 >= block_frame.0.len() {
+            call_frame.block_frames.pop();
+            return Ok(());
+        }
+        let stmt = &block_frame.0[block_frame.1];
+        block_frame.1 += 1;
+        match stmt {
+            VMStatement::DelWord => {
+                self.word_stack.pop().ok_or("No word")?;
+            }
+            VMStatement::DelPtr => {
+                self.ptr_stack.pop().ok_or("No ptr")?;
+            }
+            VMStatement::PopWord(w) => {
+                call_frame.local_words[*w] = self.word_stack.pop().ok_or("No word")?;
+            }
+            VMStatement::PopPtr(p) => {
+                call_frame.local_ptrs[*p] = self.ptr_stack.pop().ok_or("No ptr")?;
+            }
+            VMStatement::PushWord(w) => {
+                self.word_stack.push(call_frame.local_words[*w]);
+            }
+            VMStatement::PushPtr(p) => {
+                self.ptr_stack.push(call_frame.local_ptrs[*p].clone());
+            }
+            VMStatement::SwapPtr(w) => {
+                std::mem::swap(self.ptr_stack.last_mut().ok_or("No word")?, &mut call_frame.local_ptrs[*w]);
+            }
+            VMStatement::Null => {
+                self.ptr_stack.push(PtrIValue::Null);
+            }
+            VMStatement::FunPtr(module, proc) => {
+                self.ptr_stack.push(PtrIValue::Fun(*module, *proc));
+            }
+            VMStatement::ConstWord(w) => {
+                self.word_stack.push(WordIValue(*w));
+            }
+            VMStatement::WordUn(op) => {
+                let w = self.word_stack.pop().ok_or("No word")?;
+                self.word_stack.push(eval_word_unop(*op, w));
+            }
+            VMStatement::WordBin(op) => {
+                let rhs = self.word_stack.pop().ok_or("No word")?;
+                let lhs = self.word_stack.pop().ok_or("No word")?;
+                self.word_stack.push(eval_word_binop(*op, lhs, rhs)?);
+            }
+            VMStatement::PtrTag => {
+                let p = self.ptr_stack.last().ok_or("No ptr")?;
+                self.word_stack.push(p.tag());
+            }
+            VMStatement::PtrLengthWord => {
+                let p = self.ptr_stack.last().ok_or("No ptr")?;
+                match p {
+                    PtrIValue::Rc(r) => self.word_stack.push(WordIValue(r.borrow().words.len() as u64)),
+                    _ => return Err("Not an Rc".to_string()),
+                }
+            }
+            VMStatement::PtrLengthPtr => {
+                let p = self.ptr_stack.last().ok_or("No ptr")?;
+                match p {
+                    PtrIValue::Rc(r) => self.word_stack.push(WordIValue(r.borrow().ptrs.len() as u64)),
+                    _ => return Err("Not an Rc".to_string()),
+                }
+            }
+            VMStatement::AllocPtr => {
+                let ptrs = self.word_stack.pop().ok_or("No word")?;
+                let words = self.word_stack.pop().ok_or("No word")?;
+                self.ptr_stack.push(PtrIValue::Rc(Rc::new(RefCell::new(IValues {
+                    words: vec![WordIValue::default(); words.0 as usize],
+                    ptrs: vec![PtrIValue::default(); ptrs.0 as usize],
+                }))));
+            }
+            VMStatement::GetWordAt => {
+                let p = self.ptr_stack.pop().ok_or("No ptr")?;
+                let ix = self.word_stack.pop().ok_or("No word")?;
+                match p {
+                    PtrIValue::Rc(r) => {
+                        self.word_stack.push(r.borrow().words[ix.0 as usize]);
+                    }
+                    _ => return Err("Not an Rc".to_string()),
+                }
+            }
+            VMStatement::GetPtrAt => {
+                let p = self.ptr_stack.pop().ok_or("No ptr")?;
+                let ix = self.word_stack.pop().ok_or("No word")?;
+                match p {
+                    PtrIValue::Rc(r) => {
+                        self.ptr_stack.push(r.borrow().ptrs[ix.0 as usize].clone());
+                    }
+                    _ => return Err("Not an Rc".to_string()),
+                }
+            }
+            VMStatement::SetWordAt => {
+                // TODO cow
+                let v = self.word_stack.pop().ok_or("No word")?;
+                let p = self.ptr_stack.last_mut().ok_or("No ptr")?;
+                let ix = self.word_stack.pop().ok_or("No word")?;
+                match p {
+                    PtrIValue::Rc(r) => {
+                        r.borrow_mut().words[ix.0 as usize] = v;
+                    }
+                    _ => return Err("Not an Rc".to_string()),
+                }
+            }
+            VMStatement::SetPtrAt => {
+                // TODO cow
+                let v = self.ptr_stack.pop().ok_or("No ptr")?;
+                let p = self.ptr_stack.last_mut().ok_or("No ptr")?;
+                let ix = self.word_stack.pop().ok_or("No word")?;
+                match p {
+                    PtrIValue::Rc(r) => {
+                        r.borrow_mut().ptrs[ix.0 as usize] = v;
+                    }
+                    _ => return Err("Not an Rc".to_string()),
+                }
+            }
+            VMStatement::SwapPtrAt => {
+                // TODO cow
+                let mut v = self.ptr_stack.pop().ok_or("No ptr")?;
+                let p = self.ptr_stack.last_mut().ok_or("No ptr")?;
+                let ix = self.word_stack.pop().ok_or("No word")?;
+                match p {
+                    PtrIValue::Rc(r) => {
+                        std::mem::swap(&mut v, &mut r.borrow_mut().ptrs[ix.0 as usize]);
+                    }
+                    _ => return Err("Not an Rc".to_string()),
+                }
+                self.ptr_stack.push(v);
+            }
+            VMStatement::Call(module, proc) => {
+                let proc = &self.procedures[*module][*proc];
+                let new_call_frame = CallFrame {
+                    local_words: vec![WordIValue::default(); proc.local_counts.words],
+                    local_ptrs: vec![PtrIValue::default(); proc.local_counts.ptrs],
+                    block_frames: vec![(&proc.statements, 0)],
+                };
+                self.call_stack.push(new_call_frame);
+            }
+            VMStatement::CallPtr(arg_w, arg_p, ret_w, ret_p) => {
+                let ptr = self.ptr_stack.pop().ok_or("No ptr")?;
+                let proc = match ptr {
+                    PtrIValue::Fun(module, proc) => &self.procedures[module][proc],
+                    _ => return Err("Not a function".to_string()),
+                };
+                if proc.param_counts.words != *arg_w || proc.param_counts.ptrs != *arg_p {
+                    return Err("Wrong number of arguments".to_string());
+                }
+                if proc.return_counts.words != *ret_w || proc.return_counts.ptrs != *ret_p {
+                    return Err("Wrong number of return values".to_string());
+                }
+                let new_call_frame = CallFrame {
+                    local_words: vec![WordIValue::default(); proc.local_counts.words],
+                    local_ptrs: vec![PtrIValue::default(); proc.local_counts.ptrs],
+                    block_frames: vec![(&proc.statements, 0)],
+                };
+                self.call_stack.push(new_call_frame);
+            }
+            VMStatement::If(thn, els) => {
+                let cond = self.word_stack.pop().ok_or("No word")?;
+                if cond.0 != 0 {
+                    call_frame.block_frames.push((thn, 0));
+                } else {
+                    call_frame.block_frames.push((els, 0));
+                }
+            }
+            _ => unimplemented!(),
+        }
+        Ok(())
+    }
+}

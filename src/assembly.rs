@@ -274,7 +274,7 @@ impl<V> VMStatement<V> {
 pub struct VMProcedure<V> {
     pub param_counts: Counts,
     pub local_counts: Counts,
-    pub return_counts: Counts, // must be <= param_counts + local_counts
+    pub return_counts: Counts,
     pub statements: Vec<VMStatement<V>>,
 }
 
