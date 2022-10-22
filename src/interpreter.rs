@@ -14,7 +14,7 @@ struct WordIValue(u64);
 #[derive(Clone)]
 enum PtrIValue {
     Null,
-    Rc(Rc<RefCell<IValues>>),
+    Rc(Rc<IValues>),
     Fun(usize, usize),
 }
 
@@ -265,31 +265,31 @@ impl<'a> Interpreter<'a> {
             VMStatement::PtrLengthWord => {
                 let p = self.ptr_stack.last().ok_or("No ptr")?;
                 match p {
-                    PtrIValue::Rc(r) => self.word_stack.push(WordIValue(r.borrow().words.len() as u64)),
+                    PtrIValue::Rc(r) => self.word_stack.push(WordIValue(r.words.len() as u64)),
                     _ => return Err("Not an Rc".to_string()),
                 }
             }
             VMStatement::PtrLengthPtr => {
                 let p = self.ptr_stack.last().ok_or("No ptr")?;
                 match p {
-                    PtrIValue::Rc(r) => self.word_stack.push(WordIValue(r.borrow().ptrs.len() as u64)),
+                    PtrIValue::Rc(r) => self.word_stack.push(WordIValue(r.ptrs.len() as u64)),
                     _ => return Err("Not an Rc".to_string()),
                 }
             }
             VMStatement::AllocPtr => {
                 let ptrs = self.word_stack.pop().ok_or("No word")?;
                 let words = self.word_stack.pop().ok_or("No word")?;
-                self.ptr_stack.push(PtrIValue::Rc(Rc::new(RefCell::new(IValues {
+                self.ptr_stack.push(PtrIValue::Rc(Rc::new(IValues {
                     words: vec![WordIValue::default(); words.0 as usize],
                     ptrs: vec![PtrIValue::default(); ptrs.0 as usize],
-                }))));
+                })));
             }
             VMStatement::GetWordAt => {
                 let p = self.ptr_stack.pop().ok_or("No ptr")?;
                 let ix = self.word_stack.pop().ok_or("No word")?;
                 match p {
                     PtrIValue::Rc(r) => {
-                        self.word_stack.push(r.borrow().words[ix.0 as usize]);
+                        self.word_stack.push(r.words[ix.0 as usize]);
                     }
                     _ => return Err("Not an Rc".to_string()),
                 }
@@ -299,7 +299,7 @@ impl<'a> Interpreter<'a> {
                 let ix = self.word_stack.pop().ok_or("No word")?;
                 match p {
                     PtrIValue::Rc(r) => {
-                        self.ptr_stack.push(r.borrow().ptrs[ix.0 as usize].clone());
+                        self.ptr_stack.push(r.ptrs[ix.0 as usize].clone());
                     }
                     _ => return Err("Not an Rc".to_string()),
                 }
@@ -311,7 +311,7 @@ impl<'a> Interpreter<'a> {
                 let ix = self.word_stack.pop().ok_or("No word")?;
                 match p {
                     PtrIValue::Rc(r) => {
-                        r.borrow_mut().words[ix.0 as usize] = v;
+                        Rc::make_mut(r).words[ix.0 as usize] = v;
                     }
                     _ => return Err("Not an Rc".to_string()),
                 }
@@ -323,7 +323,7 @@ impl<'a> Interpreter<'a> {
                 let ix = self.word_stack.pop().ok_or("No word")?;
                 match p {
                     PtrIValue::Rc(r) => {
-                        r.borrow_mut().ptrs[ix.0 as usize] = v;
+                        Rc::make_mut(r).ptrs[ix.0 as usize] = v;
                     }
                     _ => return Err("Not an Rc".to_string()),
                 }
@@ -335,7 +335,7 @@ impl<'a> Interpreter<'a> {
                 let ix = self.word_stack.pop().ok_or("No word")?;
                 match p {
                     PtrIValue::Rc(r) => {
-                        std::mem::swap(&mut v, &mut r.borrow_mut().ptrs[ix.0 as usize]);
+                        std::mem::swap(&mut v, &mut Rc::make_mut(r).ptrs[ix.0 as usize]);
                     }
                     _ => return Err("Not an Rc".to_string()),
                 }
