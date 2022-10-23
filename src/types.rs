@@ -82,7 +82,62 @@ enum TypedRValue<V> {
 }
 
 trait TypecheckCtx<V> {
-    fn local_type(&self, v: &V) -> Result<StackType, String>;
+    fn local_type(&self, v: usize) -> Result<StackType, String>;
+}
+
+impl<V: Clone> TypedRValue<V> {
+    pub fn to_statements(&self, ctx: &impl TypecheckCtx<V>) -> Result<Vec<VMStatement<V>>, String> {
+        Ok(match self {
+            Self::Null => vec![VMStatement::Null],
+            Self::FunPtr(f, a) => vec![VMStatement::FunPtr(f.clone(), a.clone())],
+            Self::ConstWord(w) => vec![VMStatement::ConstWord(*w)],
+            Self::WordUn(op, v) => {
+                let mut stmts = v.to_statements(ctx)?;
+                stmts.push(VMStatement::WordUn(*op));
+                stmts
+            },
+            Self::WordBin(op, v1, v2) => {
+                let mut stmts = v1.to_statements(ctx)?;
+                stmts.append(&mut v2.to_statements(ctx)?);
+                stmts.push(VMStatement::WordBin(*op));
+                stmts
+            },
+            Self::PtrTag(v) => {
+                let mut stmts = v.to_statements(ctx)?;
+                stmts.push(VMStatement::PtrTag);
+                stmts
+            },
+            // PtrElemCount(v) => {
+            //     let mut stmts = v.to_statements(ctx)?;
+            //     stmts.push(VMStatement::PtrElemCount);
+            //     stmts
+            // },
+            Self::Call(module, procedure, v) => {
+                let mut stmts = v.to_statements(ctx)?;
+                stmts.push(VMStatement::Call(module.clone(), procedure.clone()));
+                stmts
+            },
+            // Self::CallPtr(v1, v2) => {
+            //     let mut stmts = v1.to_statements(ctx)?;
+            //     stmts.append(&mut v2.to_statements(ctx)?);
+            //     stmts.push(VMStatement::CallPtr);
+            //     stmts
+            // },
+            Self::If(cond, thn, els) => {
+                let mut stmts = cond.to_statements(ctx)?;
+                stmts.push(VMStatement::If(
+                    thn.to_statements(ctx)?,
+                    els.to_statements(ctx)?,
+                ));
+                stmts
+            },
+            Self::While(cond, body) => vec![VMStatement::While(
+                cond.to_statements(ctx)?,
+                body.to_statements(ctx)?
+            )],
+            _ => unimplemented!(),
+        })
+    }
 }
 
 // #[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
