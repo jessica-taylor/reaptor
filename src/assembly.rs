@@ -146,6 +146,7 @@ pub enum VMStatement<V> {
     Call(V, V),
     CallPtr(usize, usize, usize, usize),
     If(Vec<VMStatement<V>>, Vec<VMStatement<V>>),
+    While(Vec<VMStatement<V>>, Vec<VMStatement<V>>),
                                                   
     // loop? continue? break? return?
 }
@@ -194,6 +195,17 @@ impl<V> VMStatement<V> {
                 }
                 (thn_arg.max(els_arg), thn_ret.max(els_ret))
             }
+            Self::While(cond, body) => {
+                let (cond_arg, cond_ret) = Self::total_stack_type(cond, typer)?;
+                let (body_arg, body_ret) = Self::total_stack_type(body, typer)?;
+                if cond_ret - cond_arg != (Counts { words: 1, ptrs: 0 }) {
+                    return Err("while condition does not push a word".to_string());
+                }
+                if body_ret - body_arg != (Counts { words: 0, ptrs: 0 }) {
+                    return Err("while body modifies the stack".to_string());
+                }
+                (cond_arg.max(body_arg), cond_arg.max(body_arg))
+            }
         })
     }
     pub fn total_stack_type(stmts: &Vec<VMStatement<V>>, typer: &impl VMProcedureTyper<V>) -> Result<(Counts, Counts), String> {
@@ -241,6 +253,7 @@ impl<V> VMStatement<V> {
             },
             Self::CallPtr(a, b, c, d) => VMStatement::CallPtr(*a, *b, *c, *d),
             Self::If(thn, els) => VMStatement::If(Self::multi_map(thn, mapper)?, Self::multi_map(els, mapper)?),
+            Self::While(cond, body) => VMStatement::While(Self::multi_map(cond, mapper)?, Self::multi_map(body, mapper)?),
         })
     }
     pub fn multi_map<V2>(stmts: &Vec<VMStatement<V>>, mapper: &impl VMVarMapper<V, V2>) -> Result<Vec<VMStatement<V2>>, String> {
