@@ -1,264 +1,90 @@
-// use std::collections::BTreeMap;
-// use std::ops;
-// 
-// use serde::{Deserialize, Serialize};
-// 
-// use crate::assembly::{Counts, VMStatement, VMProcedure, VMWordLValue, VMWordRValue, VMPtrLValue, VMPtrRValue, WordUnOp, WordBinOp};
-// 
-// #[derive(PartialEq, Eq, Debug, Clone, Copy, Serialize, Deserialize)]
-// enum Offset {
-//     Finite(usize),
-//     Infinite,
-// }
-// 
-// impl Offset {
-//     fn zero() -> Offset {
-//         Offset::Finite(0)
-//     }
-//     fn is_finite(&self) -> bool {
-//         match self {
-//             Offset::Finite(_) => true,
-//             Offset::Infinite => false,
-//         }
-//     }
-//     fn add_checked(&self, other: &Offset) -> Result<Offset, String> {
-//         match (self, other) {
-//             (Offset::Finite(a), Offset::Finite(b)) => Ok(Offset::Finite(a.checked_add(*b).ok_or("overflow")?)),
-//             (Offset::Finite(a), Offset::Infinite) => Ok(Offset::Infinite),
-//             (Offset::Infinite, Offset::Finite(0)) => Ok(Offset::Infinite),
-//             _ => Err("offset addition fail: infinite + non-zero".to_string()),
-//         }
-//     }
-//     fn mul_checked(&self, other: &Offset) -> Result<Offset, String> {
-//         match (self, other) {
-//             (Offset::Finite(a), Offset::Finite(b)) => Ok(Offset::Finite(a.checked_mul(*b).ok_or("overflow")?)),
-//             (Offset::Finite(a), Offset::Infinite) => {
-//                 if *a == 0 {
-//                     Ok(Offset::Finite(0))
-//                 } else {
-//                     Ok(Offset::Infinite)
-//                 }
-//             }
-//             (Offset::Infinite, Offset::Finite(a)) => {
-//                 if *a == 0 {
-//                     Ok(Offset::Finite(0))
-//                 } else if *a == 1 {
-//                     Ok(Offset::Infinite)
-//                 } else {
-//                     Err("offset multiplication fail: infinite * >1".to_string())
-//                 }
-//             }
-//             _ => Err("offset multiplication fail: infinite * infinite".to_string()),
-//         }
-//     }
-// }
-// 
-// impl ops::Mul<usize> for Offset {
-//     type Output = Offset;
-//     fn mul(self, rhs: usize) -> Offset {
-//         match self {
-//             Offset::Finite(a) => Offset::Finite(a * rhs),
-//             Offset::Infinite => Offset::Infinite,
-//         }
-//     }
-// }
-// 
-// impl PartialOrd for Offset {
-//     fn partial_cmp(&self, other: &Offset) -> Option<std::cmp::Ordering> {
-//         Some(self.cmp(other))
-//     }
-// }
-// 
-// impl Ord for Offset {
-//     fn cmp(&self, other: &Offset) -> std::cmp::Ordering {
-//         match (self, other) {
-//             (Offset::Finite(a), Offset::Finite(b)) => a.cmp(b),
-//             (Offset::Infinite, Offset::Infinite) => std::cmp::Ordering::Equal,
-//             (Offset::Infinite, Offset::Finite(_)) => std::cmp::Ordering::Greater,
-//             (Offset::Finite(_), Offset::Infinite) => std::cmp::Ordering::Less,
-//         }
-//     }
-// }
-// 
-// #[derive(PartialEq, Eq, Debug, Clone, Copy, Serialize, Deserialize)]
-// struct TypedValueOffset {
-//     words: Offset,
-//     ptrs: Offset,
-// }
-// 
-// impl TypedValueOffset {
-//     fn zero() -> Self {
-//         Self {
-//             words: Offset::zero(),
-//             ptrs: Offset::zero(),
-//         }
-//     }
-//     fn is_finite(&self) -> bool {
-//         self.words.is_finite() && self.ptrs.is_finite()
-//     }
-//     fn add_checked(&self, other: &TypedValueOffset) -> Result<TypedValueOffset, String> {
-//         Ok(TypedValueOffset {
-//             words: self.words.add_checked(&other.words)?,
-//             ptrs: self.ptrs.add_checked(&other.ptrs)?,
-//         })
-//     }
-//     fn max(&self, other: &TypedValueOffset) -> TypedValueOffset {
-//         TypedValueOffset {
-//             words: std::cmp::max(self.words, other.words),
-//             ptrs: std::cmp::max(self.ptrs, other.ptrs),
-//         }
-//     }
-//     fn mul_checked(&self, other: &TypedValueOffset) -> Result<TypedValueOffset, String> {
-//         Ok(TypedValueOffset {
-//             words: self.words.mul_checked(&other.words)?,
-//             ptrs: self.ptrs.mul_checked(&other.ptrs)?,
-//         })
-//     }
-//     fn mul_offset_checked(&self, other: &Offset) -> Result<TypedValueOffset, String> {
-//         Ok(TypedValueOffset {
-//             words: self.words.mul_checked(other)?,
-//             ptrs: self.ptrs.mul_checked(other)?,
-//         })
-//     }
-//     fn to_counts(&self) -> Result<Counts, String> {
-//         match (self.words, self.ptrs) {
-//             (Offset::Finite(words), Offset::Finite(ptrs)) => Ok(Counts {
-//                 words,
-//                 ptrs,
-//             }),
-//             _ => Err("offset to counts fail: infinite".to_string()),
-//         }
-//     }
-// }
-// 
-// impl ops::Mul<usize> for TypedValueOffset {
-//     type Output = TypedValueOffset;
-//     fn mul(self, rhs: usize) -> TypedValueOffset {
-//         TypedValueOffset {
-//             words: self.words * rhs,
-//             ptrs: self.ptrs * rhs,
-//         }
-//     }
-// }
-// 
-// 
-// 
-// #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-// enum SimpleType {
-//     Word,
-//     Ptr,
-//     Tuple(Vec<SimpleType>),
-//     Array(Offset, Box<SimpleType>),
-//     Union(Vec<SimpleType>),
-// }
-// 
-// impl SimpleType {
-//     fn size(&self) -> Result<TypedValueOffset, String> {
-//         match self {
-//             SimpleType::Word => Ok(TypedValueOffset {
-//                 words: Offset::Finite(1),
-//                 ptrs: Offset::Finite(0),
-//             }),
-//             SimpleType::Ptr => Ok(TypedValueOffset {
-//                 words: Offset::Finite(0),
-//                 ptrs: Offset::Finite(1),
-//             }),
-//             SimpleType::Tuple(t) => {
-//                 let mut off = TypedValueOffset::zero();
-//                 for elem in t {
-//                     off = off.add_checked(&elem.size()?)?;
-//                 }
-//                 Ok(off)
-//             },
-//             SimpleType::Array(len, t) => {
-//                 t.size()?.mul_offset_checked(len)
-//             },
-//             SimpleType::Union(t) => {
-//                 let mut off = TypedValueOffset::zero();
-//                 for elem in t {
-//                     off = off.max(&elem.size()?);
-//                 }
-//                 Ok(off)
-//             }
-//         }
-// 
-//     }
-// }
-// 
-// #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
-// enum SimpleTypeIndex<I> {
+use std::collections::BTreeMap;
+use std::ops;
+
+use serde::{Deserialize, Serialize};
+
+use crate::assembly::{Counts, VMStatement, VMProcedure, WordUnOp, WordBinOp};
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
+enum StackType {
+    Word,
+    Ptr,
+    Tuple(Vec<StackType>),
+    Union(Vec<StackType>),
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
+struct HeapType {
+    init: StackType,
+    elem: Vec<StackType>, // length <= 2, sizes nonzero, sizes not multiples of each other
+}
+
+impl StackType {
+    fn size(&self) -> Counts {
+        match self {
+            StackType::Word => Counts {
+                words: 1,
+                ptrs: 0
+            },
+            StackType::Ptr => Counts {
+                words: 0,
+                ptrs: 1
+            },
+            StackType::Tuple(t) => {
+                let mut tot = Counts::zero();
+                for elem in t {
+                    tot = tot + elem.size();
+                }
+                tot
+            },
+            StackType::Union(t) => {
+                let mut off = Counts::zero();
+                for elem in t {
+                    off = off.max(elem.size());
+                }
+                off
+            }
+        }
+
+    }
+}
+
+// enum SimpleTypeIndex {
 //     This,
-//     TupleElem(usize, Box<SimpleTypeIndex<I>>),
-//     ArrayElem(I, Box<SimpleTypeIndex<I>>),
-//     UnionElem(usize, Box<SimpleTypeIndex<I>>),
-//     // note: this is postfix
+//     Tuple(usize),
+//     Union(usize),
 // }
-// 
-// impl<I> SimpleTypeIndex<I> {
-//     fn mapcat<I2>(&self, f: &mut dyn FnMut(&I) -> Result<I2, String>) -> Result<SimpleTypeIndex<I2>, String> {
-//         Ok(match self {
-//             SimpleTypeIndex::This => SimpleTypeIndex::This,
-//             SimpleTypeIndex::TupleElem(i, idx) => SimpleTypeIndex::TupleElem(*i, Box::new(idx.mapcat(f)?)),
-//             SimpleTypeIndex::ArrayElem(i, idx) => SimpleTypeIndex::ArrayElem(f(i)?, Box::new(idx.mapcat(f)?)),
-//             SimpleTypeIndex::UnionElem(i, idx) => SimpleTypeIndex::UnionElem(*i, Box::new(idx.mapcat(f)?)),
-//         })
-//     }
-// }
-// 
-// 
-// impl SimpleType {
-//     fn index<I>(&self, ix: &SimpleTypeIndex<I>) -> Result<SimpleType, String> {
-//         match (self, ix) {
-//             (_, SimpleTypeIndex::This) => Ok(self.clone()),
-//             (SimpleType::Tuple(t), SimpleTypeIndex::TupleElem(i, rest)) => t.get(*i).ok_or("bad tuple index".to_string())?.index(rest.as_ref()),
-//             (SimpleType::Array(_, t), SimpleTypeIndex::ArrayElem(_, rest)) => {
-//                 t.index(rest.as_ref())
-//             },
-//             (SimpleType::Union(t), SimpleTypeIndex::UnionElem(i, rest)) => t.get(*i).ok_or("bad union index".to_string())?.index(rest.as_ref()),
-//             _ => Err("bad index".to_string()),
-//         }
-//     }
-//     fn index_range(&self, ix: &SimpleTypeIndex<usize>) -> Result<(TypedValueOffset, TypedValueOffset), String> {
-//         match (self, ix) {
-//             (_, SimpleTypeIndex::This) => Ok((TypedValueOffset::zero(), self.size()?)),
-//             (SimpleType::Tuple(t), SimpleTypeIndex::TupleElem(i, rest)) => {
-//                 let mut offset = TypedValueOffset::zero();
-//                 for (j, x) in t.iter().enumerate() {
-//                     if j == *i {
-//                         let (start, end) = x.index_range(rest.as_ref())?;
-//                         return Ok((offset.add_checked(&start)?, offset.add_checked(&end)?))
-//                     }
-//                     offset = offset.add_checked(&x.size()?)?;
-//                 }
-//                 Err("bad tuple index".to_string())
-//             },
-//             (SimpleType::Array(len, t), SimpleTypeIndex::ArrayElem(i, rest)) => {
-//                 if Offset::Finite(*i) < *len {
-//                     let offset = t.size()? * *i;
-//                     let (start, end) = t.index_range(rest.as_ref())?;
-//                     Ok((offset.add_checked(&start)?, offset.add_checked(&end)?))
-//                 } else {
-//                     Err("bad array index".to_string())
-//                 }
-//             },
-//             (SimpleType::Union(t), SimpleTypeIndex::UnionElem(i, rest)) => {
-//                 t.get(*i).ok_or("bad union index".to_string())?.index_range(rest.as_ref())
-//             },
-//             _ => Err("bad index".to_string())
-//         }
-//     }
-// }
-// 
-// trait TypecheckCtx<V> {
-//     fn local_type(&self, v: &V) -> Result<SimpleType, String>;
-//     fn global_type(&self, v: &V) -> Result<SimpleType, String>;
-// }
-// 
-// trait CompileCtx<V> : TypecheckCtx<V> {
-//     fn local_offset(&self, v: &V) -> Result<Counts, String>;
-//     fn global_offset(&self, v: &V) -> Result<Counts, String>;
-// }
-// 
+
+enum TypedLValue<V> {
+    Local(usize),
+    TupleIx(Box<TypedLValue<V>>, usize),
+    UnionIx(Box<TypedLValue<V>>, usize),
+    PtrInit(Box<TypedLValue<V>>),
+    PtrElem(Box<TypedLValue<V>>, usize, Box<TypedRValue<V>>),
+}
+
+enum TypedRValue<V> {
+    LValue(Box<TypedLValue<V>>),
+    Assign(Box<TypedLValue<V>>, Box<TypedRValue<V>>),
+    Swap(Box<TypedLValue<V>>, Box<TypedLValue<V>>),
+    Null,
+    FunPtr(V, V),
+    ConstWord(u64),
+    WordUn(WordUnOp, Box<TypedRValue<V>>),
+    WordBin(WordBinOp, Box<TypedRValue<V>>, Box<TypedRValue<V>>),
+    PtrTag(Box<TypedRValue<V>>),
+    PtrElemCount(Box<TypedRValue<V>>),
+    Call(V, V, Box<TypedRValue<V>>),
+    CallPtr(Box<TypedRValue<V>>, Box<TypedRValue<V>>),
+    If(Box<TypedRValue<V>>, Box<TypedRValue<V>>, Box<TypedRValue<V>>),
+    While(Box<TypedRValue<V>>, Box<TypedRValue<V>>),
+    Sequence(Box<TypedRValue<V>>, Box<TypedRValue<V>>),
+}
+
+trait TypecheckCtx<V> {
+    fn local_type(&self, v: &V) -> Result<StackType, String>;
+}
+
 // #[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
 // enum TypedLValue<V> {
 //     Local(V),

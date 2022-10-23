@@ -80,6 +80,17 @@ impl ops::Sub for Counts {
     }
 }
 
+impl ops::Mul<usize> for Counts {
+    type Output = Counts;
+
+    fn mul(self, other: usize) -> Counts {
+        Counts {
+            words: self.words * other,
+            ptrs: self.ptrs * other
+        }
+    }
+}
+
 type Vars = VMTypeIndexed<Vec<usize>>;
 
 impl Vars {
