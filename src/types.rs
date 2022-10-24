@@ -49,18 +49,32 @@ impl StackType {
     }
 }
 
-// enum SimpleTypeIndex {
-//     This,
-//     Tuple(usize),
-//     Union(usize),
-// }
+enum StackTypeIndex {
+    This,
+    Tuple(usize, Box<StackTypeIndex>),
+    Union(usize, Box<StackTypeIndex>),
+}
+
+impl StackTypeIndex {
+    fn index_type<'a>(&self, t: &'a StackType) -> Result<&'a StackType, String> {
+        match self {
+            StackTypeIndex::This => Ok(t),
+            StackTypeIndex::Tuple(i, rest) => match rest.index_type(t)? {
+                StackType::Tuple(t) => t.get(*i).ok_or("Tuple index out of bounds".to_string()),
+                _ => Err("not a tuple".to_string())
+            },
+            StackTypeIndex::Union(i, rest) => match rest.index_type(t)? {
+                StackType::Union(t) => t.get(*i).ok_or("Union index out of bounds".to_string()),
+                _ => Err("not a union".to_string())
+            }
+        }
+    }
+}
 
 enum TypedLValue<V> {
-    Local(usize),
-    TupleIx(Box<TypedLValue<V>>, usize),
-    UnionIx(Box<TypedLValue<V>>, usize),
-    PtrInit(Box<TypedLValue<V>>),
-    PtrElem(Box<TypedLValue<V>>, usize, Box<TypedRValue<V>>),
+    Local(StackTypeIndex, usize), // b[a]
+    PtrInit(StackTypeIndex, HeapType, Box<TypedLValue<V>>), // c.init[a]
+    PtrElem(StackTypeIndex, HeapType, Box<TypedLValue<V>>, usize, Box<TypedRValue<V>>), // c.elem[d][e][a]
 }
 
 enum TypedRValue<V> {
@@ -82,7 +96,36 @@ enum TypedRValue<V> {
 }
 
 trait TypecheckCtx<V> {
-    fn local_type(&self, v: usize) -> Result<StackType, String>;
+    fn local_type<'a>(&'a self, v: usize) -> Result<&'a StackType, String>;
+}
+
+impl<V> TypedLValue<V> {
+    fn get_type(&self, ctx: &impl TypecheckCtx<V>) -> Result<StackType, String> {
+        Ok(match self {
+            TypedLValue::Local(ix, v) => ix.index_type(ctx.local_type(*v)?)?.clone(),
+            TypedLValue::PtrInit(ix, typ, ptr) => {
+                if ptr.get_type(ctx)? != StackType::Ptr {
+                    return Err("not a pointer".to_string());
+                }
+                ix.index_type(&typ.init)?.clone()
+            }
+            TypedLValue::PtrElem(ix, typ, ptr, which_arr, arr_ix) => {
+                if ptr.get_type(ctx)? != StackType::Ptr {
+                    return Err("not a pointer".to_string());
+                }
+                if arr_ix.get_type(ctx)? != StackType::Word {
+                    return Err("not a word".to_string());
+                }
+                ix.index_type(typ.elem.get(*which_arr).ok_or("no corresponding arary".to_string())?)?.clone()
+            }
+        })
+    }
+}
+
+impl<V> TypedRValue<V> {
+    fn get_type(&self, ctx: &impl TypecheckCtx<V>) -> Result<StackType, String> {
+        unimplemented!()
+    }
 }
 
 impl<V: Clone> TypedRValue<V> {

@@ -158,8 +158,6 @@ pub enum VMStatement<V> {
     CallPtr(usize, usize, usize, usize),
     If(Vec<VMStatement<V>>, Vec<VMStatement<V>>),
     While(Vec<VMStatement<V>>, Vec<VMStatement<V>>),
-                                                  
-    // loop? continue? break? return?
 }
 
 pub trait VMProcedureTyper<V> {
