@@ -87,9 +87,9 @@ enum TypedRValue<V> {
     WordUn(WordUnOp, Box<TypedRValue<V>>),
     WordBin(WordBinOp, Box<TypedRValue<V>>, Box<TypedRValue<V>>),
     PtrTag(Box<TypedRValue<V>>),
-    PtrElemCount(Box<TypedRValue<V>>),
+    PtrElemCount(Box<TypedRValue<V>>, HeapType),
     Call(V, V, Box<TypedRValue<V>>),
-    CallPtr(Box<TypedRValue<V>>, Box<TypedRValue<V>>),
+    CallPtr(Box<TypedRValue<V>>, Box<TypedRValue<V>>, StackType),
     If(Box<TypedRValue<V>>, Box<TypedRValue<V>>, Box<TypedRValue<V>>),
     While(Box<TypedRValue<V>>, Box<TypedRValue<V>>),
     Sequence(Box<TypedRValue<V>>, Box<TypedRValue<V>>),
@@ -97,6 +97,7 @@ enum TypedRValue<V> {
 
 trait TypecheckCtx<V> {
     fn local_type<'a>(&'a self, v: usize) -> Result<&'a StackType, String>;
+    fn function_type<'a>(&'a self, module: &V, name: &V) -> Result<(&'a StackType, &'a StackType), String>;
 }
 
 impl<V> TypedLValue<V> {
@@ -124,7 +125,91 @@ impl<V> TypedLValue<V> {
 
 impl<V> TypedRValue<V> {
     fn get_type(&self, ctx: &impl TypecheckCtx<V>) -> Result<StackType, String> {
-        unimplemented!()
+        Ok(match self {
+            TypedRValue::LValue(l) => l.get_type(ctx)?,
+            TypedRValue::Assign(l, r) => {
+                if l.get_type(ctx)? != r.get_type(ctx)? {
+                    return Err("type mismatch".to_string());
+                }
+                StackType::Tuple(vec![])
+            }
+            TypedRValue::Swap(l, r) => {
+                if l.get_type(ctx)? != r.get_type(ctx)? {
+                    return Err("type mismatch".to_string());
+                }
+                StackType::Tuple(vec![])
+            }
+            TypedRValue::Null => StackType::Ptr,
+            TypedRValue::FunPtr(module, name) => {
+                ctx.function_type(module, name)?;
+                StackType::Ptr
+            },
+            TypedRValue::ConstWord(_) => StackType::Word,
+            TypedRValue::WordUn(_, r) => {
+                if r.get_type(ctx)? != StackType::Word {
+                    return Err("not a word".to_string());
+                }
+                StackType::Word
+            }
+            TypedRValue::WordBin(_, l, r) => {
+                if l.get_type(ctx)? != StackType::Word {
+                    return Err("not a word".to_string());
+                }
+                if r.get_type(ctx)? != StackType::Word {
+                    return Err("not a word".to_string());
+                }
+                StackType::Word
+            }
+            TypedRValue::PtrTag(r) => {
+                if r.get_type(ctx)? != StackType::Ptr {
+                    return Err("not a pointer".to_string());
+                }
+                StackType::Word
+            }
+            TypedRValue::PtrElemCount(r, _) => {
+                if r.get_type(ctx)? != StackType::Ptr {
+                    return Err("not a pointer".to_string());
+                }
+                StackType::Word
+            }
+            TypedRValue::Call(module, name, arg) => {
+                let (arg_t, ret_t) = ctx.function_type(module, name)?;
+                if arg.get_type(ctx)? != *arg_t {
+                    return Err("type mismatch".to_string());
+                }
+                ret_t.clone()
+            }
+            TypedRValue::CallPtr(f, arg, typ) => {
+                if f.get_type(ctx)? != StackType::Ptr {
+                    return Err("not a pointer".to_string());
+                }
+                typ.clone()
+            }
+            TypedRValue::If(cond, then, els) => {
+                if cond.get_type(ctx)? != StackType::Word {
+                    return Err("not a word".to_string());
+                }
+                let then_t = then.get_type(ctx)?;
+                let els_t = els.get_type(ctx)?;
+                if then_t != els_t {
+                    return Err("type mismatch".to_string());
+                }
+                then_t
+            }
+            TypedRValue::While(cond, body) => {
+                if cond.get_type(ctx)? != StackType::Word {
+                    return Err("not a word".to_string());
+                }
+                if body.get_type(ctx)? != StackType::Tuple(vec![]) {
+                    return Err("not a unit".to_string());
+                }
+                StackType::Tuple(vec![])
+            }
+            TypedRValue::Sequence(l, r) => {
+                l.get_type(ctx)?;
+                r.get_type(ctx)?
+            }
+        })
     }
 }
 
@@ -150,7 +235,7 @@ impl<V: Clone> TypedRValue<V> {
                 stmts.push(VMStatement::PtrTag);
                 stmts
             },
-            // PtrElemCount(v) => {
+            // PtrElemCount(v, typ) => {
             //     let mut stmts = v.to_statements(ctx)?;
             //     stmts.push(VMStatement::PtrElemCount);
             //     stmts
