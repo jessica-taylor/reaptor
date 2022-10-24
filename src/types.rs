@@ -245,12 +245,14 @@ impl<V: Clone> TypedRValue<V> {
                 stmts.push(VMStatement::Call(module.clone(), procedure.clone()));
                 stmts
             },
-            // Self::CallPtr(v1, v2) => {
-            //     let mut stmts = v1.to_statements(ctx)?;
-            //     stmts.append(&mut v2.to_statements(ctx)?);
-            //     stmts.push(VMStatement::CallPtr);
-            //     stmts
-            // },
+            Self::CallPtr(v1, v2, typ) => {
+                let mut stmts = v1.to_statements(ctx)?;
+                stmts.append(&mut v2.to_statements(ctx)?);
+                let arg_size = v2.get_type(ctx)?.size();
+                let ret_size = typ.size();
+                stmts.push(VMStatement::CallPtr(arg_size.words, arg_size.ptrs, ret_size.words, ret_size.ptrs));
+                stmts
+            },
             Self::If(cond, thn, els) => {
                 let mut stmts = cond.to_statements(ctx)?;
                 stmts.push(VMStatement::If(
