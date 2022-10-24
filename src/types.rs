@@ -59,12 +59,33 @@ impl StackTypeIndex {
     fn index_type<'a>(&self, t: &'a StackType) -> Result<&'a StackType, String> {
         match self {
             StackTypeIndex::This => Ok(t),
-            StackTypeIndex::Tuple(i, rest) => match rest.index_type(t)? {
-                StackType::Tuple(t) => t.get(*i).ok_or("Tuple index out of bounds".to_string()),
+            StackTypeIndex::Tuple(i, rest) => match t {
+                StackType::Tuple(t) => rest.index_type(t.get(*i).ok_or("Tuple index out of bounds".to_string())?),
+                _ => Err("not a tuple".to_string())
+            },
+            StackTypeIndex::Union(i, rest) => match t {
+                StackType::Union(t) => rest.index_type(t.get(*i).ok_or("Union index out of bounds".to_string())?),
+                _ => Err("not a union".to_string())
+            }
+        }
+    }
+    fn offset(&self, t: &StackType) -> Result<Counts, String> {
+        match self {
+            StackTypeIndex::This => Ok(Counts::zero()),
+            StackTypeIndex::Tuple(i, rest) => match t {
+                StackType::Tuple(t) => {
+                    let mut off = Counts::zero();
+                    for elem in t.iter().take(*i) {
+                        off = off + elem.size();
+                    }
+                    Ok(off + rest.offset(t.get(*i).ok_or("Tuple index out of bounds".to_string())?)?)
+                },
                 _ => Err("not a tuple".to_string())
             },
             StackTypeIndex::Union(i, rest) => match rest.index_type(t)? {
-                StackType::Union(t) => t.get(*i).ok_or("Union index out of bounds".to_string()),
+                StackType::Union(t) => {
+                    rest.offset(t.get(*i).ok_or("Union index out of bounds".to_string())?)
+                },
                 _ => Err("not a union".to_string())
             }
         }
