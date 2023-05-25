@@ -2,10 +2,12 @@ use std::collections::BTreeMap;
 use std::default::Default;
 use std::rc::Rc;
 use std::cell::RefCell;
+use anyhow::{anyhow, bail};
 
 use serde::{Deserialize, Serialize};
 
 use crate::assembly::{Counts, VMStatement, VMProcedure, VMModule, VMLibrary, WordUnOp, WordBinOp};
+use crate::error::Res;
 
 
 #[derive(Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, Serialize, Deserialize)]
@@ -58,18 +60,18 @@ fn bool_to_word(b: bool) -> WordIValue {
     WordIValue((b as u64) * u64::MAX)
 }
 
-fn eval_word_binop(op: WordBinOp, lhs: WordIValue, rhs: WordIValue) -> Result<WordIValue, String> {
+fn eval_word_binop(op: WordBinOp, lhs: WordIValue, rhs: WordIValue) -> Res<WordIValue> {
     Ok(match op {
         WordBinOp::Add(signed, checked) => {
             if signed {
                 if checked {
-                    WordIValue((lhs.0 as i64).checked_add(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
+                    WordIValue((lhs.0 as i64).checked_add(rhs.0 as i64).ok_or(anyhow!("overflow"))? as u64)
                 } else {
                     WordIValue((lhs.0 as i64).wrapping_add(rhs.0 as i64) as u64)
                 }
             } else {
                 if checked {
-                    WordIValue(lhs.0.checked_add(rhs.0).ok_or("overflow".to_string())?)
+                    WordIValue(lhs.0.checked_add(rhs.0).ok_or(anyhow!("overflow"))?)
                 } else {
                     WordIValue(lhs.0.wrapping_add(rhs.0))
                 }
@@ -78,13 +80,13 @@ fn eval_word_binop(op: WordBinOp, lhs: WordIValue, rhs: WordIValue) -> Result<Wo
         WordBinOp::Sub(signed, checked) => {
             if signed {
                 if checked {
-                    WordIValue((lhs.0 as i64).checked_sub(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
+                    WordIValue((lhs.0 as i64).checked_sub(rhs.0 as i64).ok_or(anyhow!("overflow"))? as u64)
                 } else {
                     WordIValue((lhs.0 as i64).wrapping_sub(rhs.0 as i64) as u64)
                 }
             } else {
                 if checked {
-                    WordIValue(lhs.0.checked_sub(rhs.0).ok_or("overflow".to_string())?)
+                    WordIValue(lhs.0.checked_sub(rhs.0).ok_or(anyhow!("overflow"))?)
                 } else {
                     WordIValue(lhs.0.wrapping_sub(rhs.0))
                 }
@@ -93,13 +95,13 @@ fn eval_word_binop(op: WordBinOp, lhs: WordIValue, rhs: WordIValue) -> Result<Wo
         WordBinOp::Mul(signed, checked) => {
             if signed {
                 if checked {
-                    WordIValue((lhs.0 as i64).checked_mul(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
+                    WordIValue((lhs.0 as i64).checked_mul(rhs.0 as i64).ok_or(anyhow!("overflow"))? as u64)
                 } else {
                     WordIValue((lhs.0 as i64).wrapping_mul(rhs.0 as i64) as u64)
                 }
             } else {
                 if checked {
-                    WordIValue(lhs.0.checked_mul(rhs.0).ok_or("overflow".to_string())?)
+                    WordIValue(lhs.0.checked_mul(rhs.0).ok_or(anyhow!("overflow"))?)
                 } else {
                     WordIValue(lhs.0.wrapping_mul(rhs.0))
                 }
@@ -108,13 +110,13 @@ fn eval_word_binop(op: WordBinOp, lhs: WordIValue, rhs: WordIValue) -> Result<Wo
         WordBinOp::Div(signed, checked) => {
             if signed {
                 if checked {
-                    WordIValue((lhs.0 as i64).checked_div(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
+                    WordIValue((lhs.0 as i64).checked_div(rhs.0 as i64).ok_or(anyhow!("overflow"))? as u64)
                 } else {
                     WordIValue((lhs.0 as i64).wrapping_div(rhs.0 as i64) as u64)
                 }
             } else {
                 if checked {
-                    WordIValue(lhs.0.checked_div(rhs.0).ok_or("overflow".to_string())?)
+                    WordIValue(lhs.0.checked_div(rhs.0).ok_or(anyhow!("overflow"))?)
                 } else {
                     WordIValue(lhs.0.wrapping_div(rhs.0))
                 }
@@ -123,13 +125,13 @@ fn eval_word_binop(op: WordBinOp, lhs: WordIValue, rhs: WordIValue) -> Result<Wo
         WordBinOp::Mod(signed, checked) => {
             if signed {
                 if checked {
-                    WordIValue((lhs.0 as i64).checked_rem(rhs.0 as i64).ok_or("overflow".to_string())? as u64)
+                    WordIValue((lhs.0 as i64).checked_rem(rhs.0 as i64).ok_or(anyhow!("overflow"))? as u64)
                 } else {
                     WordIValue((lhs.0 as i64).wrapping_rem(rhs.0 as i64) as u64)
                 }
             } else {
                 if checked {
-                    WordIValue(lhs.0.checked_rem(rhs.0).ok_or("overflow".to_string())?)
+                    WordIValue(lhs.0.checked_rem(rhs.0).ok_or(anyhow!("overflow"))?)
                 } else {
                     WordIValue(lhs.0.wrapping_rem(rhs.0))
                 }
@@ -211,13 +213,13 @@ impl<'a> Interpreter<'a> {
     fn done(&self) -> bool {
         self.call_stack.is_empty()
     }
-    fn step(&mut self) -> Result<(), String> {
-        let call_frame = self.call_stack.last_mut().ok_or("No frame")?;
+    fn step(&mut self) -> Res<()> {
+        let call_frame = self.call_stack.last_mut().ok_or(anyhow!("No frame"))?;
         if call_frame.block_frames.is_empty() {
             self.call_stack.pop();
             return Ok(());
         }
-        let block_frame = call_frame.block_frames.last_mut().ok_or("No block")?;
+        let block_frame = call_frame.block_frames.last_mut().ok_or(anyhow!("No block"))?;
         let stmt: &'a VMStatement<usize> = match block_frame {
             BlockFrame::Block(ix, stmts) => {
                 if *ix >= stmts.len() {
@@ -230,7 +232,7 @@ impl<'a> Interpreter<'a> {
             }
             BlockFrame::WhileCond(ix, cond, body) => {
                 if *ix >= cond.len() {
-                    if self.word_stack.pop().ok_or("No value")?.0 != 0 {
+                    if self.word_stack.pop().ok_or(anyhow!("No value"))?.0 != 0 {
                         *block_frame = BlockFrame::WhileBody(0, cond, body);
                     } else {
                         call_frame.block_frames.pop();
@@ -253,25 +255,25 @@ impl<'a> Interpreter<'a> {
         };
         match stmt {
             VMStatement::DelWord => {
-                self.word_stack.pop().ok_or("No word")?;
+                self.word_stack.pop().ok_or(anyhow!("No word"))?;
             }
             VMStatement::DelPtr => {
-                self.ptr_stack.pop().ok_or("No ptr")?;
+                self.ptr_stack.pop().ok_or(anyhow!("No ptr"))?;
             }
             VMStatement::PopWord(w) => {
-                *call_frame.local_words.get_mut(*w).ok_or("bad local index")? = self.word_stack.pop().ok_or("No word")?;
+                *call_frame.local_words.get_mut(*w).ok_or(anyhow!("bad local index"))? = self.word_stack.pop().ok_or(anyhow!("No word"))?;
             }
             VMStatement::PopPtr(p) => {
-                *call_frame.local_ptrs.get_mut(*p).ok_or("bad local index")? = self.ptr_stack.pop().ok_or("No ptr")?;
+                *call_frame.local_ptrs.get_mut(*p).ok_or(anyhow!("bad local index"))? = self.ptr_stack.pop().ok_or(anyhow!("No ptr"))?;
             }
             VMStatement::PushWord(w) => {
-                self.word_stack.push(*call_frame.local_words.get(*w).ok_or("bad local index")?);
+                self.word_stack.push(*call_frame.local_words.get(*w).ok_or(anyhow!("bad local index"))?);
             }
             VMStatement::PushPtr(p) => {
-                self.ptr_stack.push(call_frame.local_ptrs.get(*p).ok_or("bad local index")?.clone());
+                self.ptr_stack.push(call_frame.local_ptrs.get(*p).ok_or(anyhow!("bad local index"))?.clone());
             }
             VMStatement::SwapPtr(w) => {
-                std::mem::swap(self.ptr_stack.last_mut().ok_or("No word")?, call_frame.local_ptrs.get_mut(*w).ok_or("bad local index")?);
+                std::mem::swap(self.ptr_stack.last_mut().ok_or(anyhow!("No word"))?, call_frame.local_ptrs.get_mut(*w).ok_or(anyhow!("bad local index"))?);
             }
             VMStatement::Null => {
                 self.ptr_stack.push(PtrIValue::Null);
@@ -283,91 +285,91 @@ impl<'a> Interpreter<'a> {
                 self.word_stack.push(WordIValue(*w));
             }
             VMStatement::WordUn(op) => {
-                let w = self.word_stack.pop().ok_or("No word")?;
+                let w = self.word_stack.pop().ok_or(anyhow!("No word"))?;
                 self.word_stack.push(eval_word_unop(*op, w));
             }
             VMStatement::WordBin(op) => {
-                let rhs = self.word_stack.pop().ok_or("No word")?;
-                let lhs = self.word_stack.pop().ok_or("No word")?;
+                let rhs = self.word_stack.pop().ok_or(anyhow!("No word"))?;
+                let lhs = self.word_stack.pop().ok_or(anyhow!("No word"))?;
                 self.word_stack.push(eval_word_binop(*op, lhs, rhs)?);
             }
             VMStatement::PtrTag => {
-                let p = self.ptr_stack.last().ok_or("No ptr")?;
+                let p = self.ptr_stack.last().ok_or(anyhow!("No ptr"))?;
                 self.word_stack.push(p.tag());
             }
             VMStatement::PtrLengthWord => {
-                let p = self.ptr_stack.last().ok_or("No ptr")?;
+                let p = self.ptr_stack.last().ok_or(anyhow!("No ptr"))?;
                 match p {
                     PtrIValue::Rc(r) => self.word_stack.push(WordIValue(r.words.len() as u64)),
-                    _ => return Err("Not an Rc".to_string()),
+                    _ => bail!("Not an Rc".to_string()),
                 }
             }
             VMStatement::PtrLengthPtr => {
-                let p = self.ptr_stack.last().ok_or("No ptr")?;
+                let p = self.ptr_stack.last().ok_or(anyhow!("No ptr"))?;
                 match p {
                     PtrIValue::Rc(r) => self.word_stack.push(WordIValue(r.ptrs.len() as u64)),
-                    _ => return Err("Not an Rc".to_string()),
+                    _ => bail!("Not an Rc".to_string()),
                 }
             }
             VMStatement::AllocPtr => {
-                let ptrs = self.word_stack.pop().ok_or("No word")?;
-                let words = self.word_stack.pop().ok_or("No word")?;
+                let ptrs = self.word_stack.pop().ok_or(anyhow!("No word"))?;
+                let words = self.word_stack.pop().ok_or(anyhow!("No word"))?;
                 self.ptr_stack.push(PtrIValue::Rc(Rc::new(IValues {
                     words: vec![WordIValue::default(); words.0 as usize],
                     ptrs: vec![PtrIValue::default(); ptrs.0 as usize],
                 })));
             }
             VMStatement::GetWordAt => {
-                let p = self.ptr_stack.pop().ok_or("No ptr")?;
-                let ix = self.word_stack.pop().ok_or("No word")?;
+                let p = self.ptr_stack.pop().ok_or(anyhow!("No ptr"))?;
+                let ix = self.word_stack.pop().ok_or(anyhow!("No word"))?;
                 match p {
                     PtrIValue::Rc(r) => {
-                        self.word_stack.push(*r.words.get(ix.0 as usize).ok_or("Bad index")?);
+                        self.word_stack.push(*r.words.get(ix.0 as usize).ok_or(anyhow!("Bad index"))?);
                     }
-                    _ => return Err("Not an Rc".to_string()),
+                    _ => bail!("Not an Rc".to_string()),
                 }
             }
             VMStatement::GetPtrAt => {
-                let p = self.ptr_stack.pop().ok_or("No ptr")?;
-                let ix = self.word_stack.pop().ok_or("No word")?;
+                let p = self.ptr_stack.pop().ok_or(anyhow!("No ptr"))?;
+                let ix = self.word_stack.pop().ok_or(anyhow!("No word"))?;
                 match p {
                     PtrIValue::Rc(r) => {
-                        self.ptr_stack.push(r.ptrs.get(ix.0 as usize).ok_or("Bad index")?.clone());
+                        self.ptr_stack.push(r.ptrs.get(ix.0 as usize).ok_or(anyhow!("Bad index"))?.clone());
                     }
-                    _ => return Err("Not an Rc".to_string()),
+                    _ => bail!("Not an Rc".to_string()),
                 }
             }
             VMStatement::SetWordAt => {
-                let v = self.word_stack.pop().ok_or("No word")?;
-                let p = self.ptr_stack.last_mut().ok_or("No ptr")?;
-                let ix = self.word_stack.pop().ok_or("No word")?;
+                let v = self.word_stack.pop().ok_or(anyhow!("No word"))?;
+                let p = self.ptr_stack.last_mut().ok_or(anyhow!("No ptr"))?;
+                let ix = self.word_stack.pop().ok_or(anyhow!("No word"))?;
                 match p {
                     PtrIValue::Rc(r) => {
-                        *Rc::make_mut(r).words.get_mut(ix.0 as usize).ok_or("Bad index")? = v;
+                        *Rc::make_mut(r).words.get_mut(ix.0 as usize).ok_or(anyhow!("Bad index"))? = v;
                     }
-                    _ => return Err("Not an Rc".to_string()),
+                    _ => bail!("Not an Rc".to_string()),
                 }
             }
             VMStatement::SetPtrAt => {
-                let v = self.ptr_stack.pop().ok_or("No ptr")?;
-                let p = self.ptr_stack.last_mut().ok_or("No ptr")?;
-                let ix = self.word_stack.pop().ok_or("No word")?;
+                let v = self.ptr_stack.pop().ok_or(anyhow!("No ptr"))?;
+                let p = self.ptr_stack.last_mut().ok_or(anyhow!("No ptr"))?;
+                let ix = self.word_stack.pop().ok_or(anyhow!("No word"))?;
                 match p {
                     PtrIValue::Rc(r) => {
-                        *Rc::make_mut(r).ptrs.get_mut(ix.0 as usize).ok_or("Bad index")? = v;
+                        *Rc::make_mut(r).ptrs.get_mut(ix.0 as usize).ok_or(anyhow!("Bad index"))? = v;
                     }
-                    _ => return Err("Not an Rc".to_string()),
+                    _ => bail!("Not an Rc".to_string()),
                 }
             }
             VMStatement::SwapPtrAt => {
-                let mut v = self.ptr_stack.pop().ok_or("No ptr")?;
-                let p = self.ptr_stack.last_mut().ok_or("No ptr")?;
-                let ix = self.word_stack.pop().ok_or("No word")?;
+                let mut v = self.ptr_stack.pop().ok_or(anyhow!("No ptr"))?;
+                let p = self.ptr_stack.last_mut().ok_or(anyhow!("No ptr"))?;
+                let ix = self.word_stack.pop().ok_or(anyhow!("No word"))?;
                 match p {
                     PtrIValue::Rc(r) => {
-                        std::mem::swap(&mut v, Rc::make_mut(r).ptrs.get_mut(ix.0 as usize).ok_or("Bad index")?);
+                        std::mem::swap(&mut v, Rc::make_mut(r).ptrs.get_mut(ix.0 as usize).ok_or(anyhow!("Bad index"))?);
                     }
-                    _ => return Err("Not an Rc".to_string()),
+                    _ => bail!("Not an Rc".to_string()),
                 }
                 self.ptr_stack.push(v);
             }
@@ -381,16 +383,16 @@ impl<'a> Interpreter<'a> {
                 self.call_stack.push(new_call_frame);
             }
             VMStatement::CallPtr(arg_w, arg_p, ret_w, ret_p) => {
-                let ptr = self.ptr_stack.pop().ok_or("No ptr")?;
+                let ptr = self.ptr_stack.pop().ok_or(anyhow!("No ptr"))?;
                 let proc = match ptr {
                     PtrIValue::Fun(module, proc) => &self.procedures[module][proc],
-                    _ => return Err("Not a function".to_string()),
+                    _ => bail!("Not a function".to_string()),
                 };
                 if proc.param_counts.words != *arg_w || proc.param_counts.ptrs != *arg_p {
-                    return Err("Wrong number of arguments".to_string());
+                    bail!("Wrong number of arguments".to_string());
                 }
                 if proc.return_counts.words != *ret_w || proc.return_counts.ptrs != *ret_p {
-                    return Err("Wrong number of return values".to_string());
+                    bail!("Wrong number of return values".to_string());
                 }
                 let new_call_frame = CallFrame {
                     local_words: vec![WordIValue::default(); proc.local_counts.words],
@@ -400,7 +402,7 @@ impl<'a> Interpreter<'a> {
                 self.call_stack.push(new_call_frame);
             }
             VMStatement::If(thn, els) => {
-                let cond = self.word_stack.pop().ok_or("No word")?;
+                let cond = self.word_stack.pop().ok_or(anyhow!("No word"))?;
                 if cond.0 != 0 {
                     call_frame.block_frames.push(BlockFrame::Block(0, thn));
                 } else {
