@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 use std::ops;
+use anyhow::{anyhow, bail};
 
 use serde::{Deserialize, Serialize};
+use crate::error::Res;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum VMType {
@@ -161,16 +163,16 @@ pub enum VMStatement<V> {
 }
 
 pub trait VMProcedureTyper<V> {
-    fn args_rets(&self, module: &V, proc: &V) -> Result<(Counts, Counts), String>;
+    fn args_rets(&self, module: &V, proc: &V) -> Res<(Counts, Counts)>;
 }
 
 pub trait VMVarMapper<V1, V2> {
-    fn map_module(&self, module: &V1) -> Result<V2, String>;
-    fn map_procedure(&self, module: &V1, proc: &V1) -> Result<V2, String>;
+    fn map_module(&self, module: &V1) -> Res<V2>;
+    fn map_procedure(&self, module: &V1, proc: &V1) -> Res<V2>;
 }
 
 impl<V> VMStatement<V> {
-    pub fn stack_type(&self, typer: &impl VMProcedureTyper<V>) -> Result<(Counts, Counts), String> {
+    pub fn stack_type(&self, typer: &impl VMProcedureTyper<V>) -> Res<(Counts, Counts)> {
         // counts of args, counts of rets
         Ok(match self {
             Self::DelWord => (Counts { words: 1, ptrs: 0 }, Counts::zero()),
@@ -200,7 +202,7 @@ impl<V> VMStatement<V> {
                 let (thn_arg, thn_ret) = Self::total_stack_type(thn, typer)?;
                 let (els_arg, els_ret) = Self::total_stack_type(els, typer)?;
                 if thn_ret - thn_arg != els_ret - els_arg {
-                    return Err("if branches have different stack types".to_string());
+                    bail!("if branches have different stack types".to_string());
                 }
                 (thn_arg.max(els_arg), thn_ret.max(els_ret))
             }
@@ -208,16 +210,16 @@ impl<V> VMStatement<V> {
                 let (cond_arg, cond_ret) = Self::total_stack_type(cond, typer)?;
                 let (body_arg, body_ret) = Self::total_stack_type(body, typer)?;
                 if cond_ret - cond_arg != (Counts { words: 1, ptrs: 0 }) {
-                    return Err("while condition does not push a word".to_string());
+                    bail!("while condition does not push a word".to_string());
                 }
                 if body_ret - body_arg != (Counts { words: 0, ptrs: 0 }) {
-                    return Err("while body modifies the stack".to_string());
+                    bail!("while body modifies the stack".to_string());
                 }
                 (cond_arg.max(body_arg), cond_arg.max(body_arg))
             }
         })
     }
-    pub fn total_stack_type(stmts: &Vec<VMStatement<V>>, typer: &impl VMProcedureTyper<V>) -> Result<(Counts, Counts), String> {
+    pub fn total_stack_type(stmts: &Vec<VMStatement<V>>, typer: &impl VMProcedureTyper<V>) -> Res<(Counts, Counts)> {
         let mut net_stack = Counts::zero();
         let mut min_stack = Counts::zero();
         for stmt in stmts {
@@ -228,7 +230,7 @@ impl<V> VMStatement<V> {
         }
         Ok((Counts::zero() - min_stack, min_stack + net_stack))
     }
-    pub fn map<V2>(&self, mapper: &impl VMVarMapper<V, V2>) -> Result<VMStatement<V2>, String> {
+    pub fn map<V2>(&self, mapper: &impl VMVarMapper<V, V2>) -> Res<VMStatement<V2>> {
         Ok(match self {
             Self::DelWord => VMStatement::DelWord,
             Self::DelPtr => VMStatement::DelPtr,
@@ -265,7 +267,7 @@ impl<V> VMStatement<V> {
             Self::While(cond, body) => VMStatement::While(Self::multi_map(cond, mapper)?, Self::multi_map(body, mapper)?),
         })
     }
-    pub fn multi_map<V2>(stmts: &Vec<VMStatement<V>>, mapper: &impl VMVarMapper<V, V2>) -> Result<Vec<VMStatement<V2>>, String> {
+    pub fn multi_map<V2>(stmts: &Vec<VMStatement<V>>, mapper: &impl VMVarMapper<V, V2>) -> Res<Vec<VMStatement<V2>>> {
         let mut result = Vec::new();
         for stmt in stmts {
             result.push(stmt.map(mapper)?);
@@ -302,7 +304,7 @@ pub struct VMProcedure<V> {
 
 impl<V> VMProcedure<V> {
     // TODO check stack counts? local counts?
-    pub fn map<V2>(&self, mapper: &impl VMVarMapper<V, V2>) -> Result<VMProcedure<V2>, String> {
+    pub fn map<V2>(&self, mapper: &impl VMVarMapper<V, V2>) -> Res<VMProcedure<V2>> {
         Ok(VMProcedure {
             param_counts: self.param_counts,
             local_counts: self.local_counts,
@@ -318,7 +320,7 @@ pub struct VMModule<V: Ord> {
 }
 
 impl<V: Ord> VMModule<V> {
-    fn map<V2: Ord>(self, mod_name: &V, mapper: &impl VMVarMapper<V, V2>) -> Result<VMModule<V2>, String> {
+    fn map<V2: Ord>(self, mod_name: &V, mapper: &impl VMVarMapper<V, V2>) -> Res<VMModule<V2>> {
         let mut procedures = BTreeMap::new();
         for (name, proc) in self.procedures {
             procedures.insert(mapper.map_procedure(&mod_name, &name)?, proc.map(mapper)?);
@@ -336,7 +338,7 @@ pub struct VMLibrary<V: Ord> {
 }
 
 impl<V: Ord> VMLibrary<V> {
-    fn map<V2: Ord>(self, mapper: &impl VMVarMapper<V, V2>) -> Result<VMLibrary<V2>, String> {
+    fn map<V2: Ord>(self, mapper: &impl VMVarMapper<V, V2>) -> Res<VMLibrary<V2>> {
         let mut modules = BTreeMap::new();
         for (mod_name, module) in self.modules {
             modules.insert(mapper.map_module(&mod_name)?, module.map(&mod_name, mapper)?);
@@ -352,9 +354,9 @@ impl<V: Ord> VMLibrary<V> {
 }
 
 impl<V: Ord> VMProcedureTyper<V> for VMLibrary<V> {
-    fn args_rets(&self, module: &V, proc: &V) -> Result<(Counts, Counts), String> {
-        let module = self.modules.get(module).ok_or(format!("module not found"))?;
-        let proc = module.procedures.get(proc).ok_or(format!("procedure not found"))?;
+    fn args_rets(&self, module: &V, proc: &V) -> Res<(Counts, Counts)> {
+        let module = self.modules.get(module).ok_or(anyhow!("module not found"))?;
+        let proc = module.procedures.get(proc).ok_or(anyhow!("procedure not found"))?;
         Ok((proc.param_counts, proc.return_counts))
     }
 }
@@ -402,16 +404,16 @@ impl<V: Ord> VMProcedureTyper<V> for VMLibrary<V> {
 // }
 // 
 // impl VarMapper<String, usize> for VarLibraryManager {
-//     fn get_module(&self, module: &String) -> Result<usize, String> {
+//     fn get_module(&self, module: &String) -> Res<usize> {
 //         self.modules.get(module).cloned().ok_or(format!("unknown module {}", module))
 //     }
-//     fn get_procedure(&self, mod_id: &usize, procedure: &String) -> Result<usize, String> {
+//     fn get_procedure(&self, mod_id: &usize, procedure: &String) -> Res<usize> {
 //         let mod_man = self.module_managers.get(*mod_id).ok_or(format!("bad module index"))?;
 //         mod_man.procedures.get(procedure).cloned().ok_or(format!("unknown procedure {}", procedure))
 //     }
 // }
 // 
-// pub fn translate_library_vars(lib: VMLibrary<String>) -> Result<VMLibrary<usize>, String> {
+// pub fn translate_library_vars(lib: VMLibrary<String>) -> Res<VMLibrary<usize>> {
 //     let mut lib_manager = VarLibraryManager::new();
 //     for module in &lib.modules {
 //         let mut mod_manager = lib_manager.add_module(&module.name);
