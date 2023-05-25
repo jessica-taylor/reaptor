@@ -29,21 +29,19 @@ trait LExpr<V> : Expr<V> {
 
 // rvalues
 
-pub struct ConstWordExpr {
-    pub value: u64
-}
+pub struct ConstWordExpr(pub u64);
 
 impl<V> Expr<V> for ConstWordExpr {
     fn size(&self) -> Counts {
         Counts {words: 1, ptrs: 0}
     }
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
-        ctx.add_instruction(VMStatement::ConstWord(self.value));
+        ctx.add_instruction(VMStatement::ConstWord(self.0));
         Ok(())
     }
 }
 
-pub struct NullExpr {}
+pub struct NullExpr();
 
 impl<V> Expr<V> for NullExpr {
     fn size(&self) -> Counts {
@@ -51,6 +49,18 @@ impl<V> Expr<V> for NullExpr {
     }
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         ctx.add_instruction(VMStatement::Null);
+        Ok(())
+    }
+}
+
+pub struct FunPtrExpr<T>(pub T, pub T);
+
+impl<V: Clone> Expr<V> for FunPtrExpr<V> {
+    fn size(&self) -> Counts {
+        Counts {words: 0, ptrs: 1}
+    }
+    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
+        ctx.add_instruction(VMStatement::FunPtr(self.0.clone(), self.1.clone()));
         Ok(())
     }
 }
