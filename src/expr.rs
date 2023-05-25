@@ -79,6 +79,22 @@ impl<V, T : Expr<V>> Expr<V> for WordUnExpr<T> {
     }
 }
 
+pub struct WordBinExpr<T, U>(pub WordBinOp, pub T, pub U);
+
+impl<V, T : Expr<V>, U : Expr<V>> Expr<V> for WordBinExpr<T, U> {
+    fn size(&self) -> Counts {
+        assert!(self.1.size() == (Counts {words: 1, ptrs: 0}));
+        assert!(self.2.size() == (Counts {words: 1, ptrs: 0}));
+        Counts {words: 1, ptrs: 0}
+    }
+    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
+        self.1.copy_to_stack(ctx)?;
+        self.2.copy_to_stack(ctx)?;
+        ctx.add_instruction(VMStatement::WordBin(self.0));
+        Ok(())
+    }
+}
+
 
 // lvalues
 
