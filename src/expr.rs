@@ -32,6 +32,37 @@ trait LExpr<V> : Expr<V> {
     }
 }
 
+// rvalues
+
+pub struct ConstWordExpr {
+    pub value: u64
+}
+
+impl<V> Expr<V> for ConstWordExpr {
+    fn size(&self) -> Counts {
+        Counts {words: 1, ptrs: 0}
+    }
+    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> bool {
+        ctx.add_instruction(VMStatement::ConstWord(self.value));
+        true
+    }
+}
+
+pub struct NullExpr {}
+
+impl<V> Expr<V> for NullExpr {
+    fn size(&self) -> Counts {
+        Counts {words: 0, ptrs: 1}
+    }
+    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> bool {
+        ctx.add_instruction(VMStatement::Null);
+        true
+    }
+}
+
+
+// lvalues
+
 pub struct LocalPtrExpr {
     pub index: usize,
 }
@@ -95,6 +126,7 @@ impl<V> LExpr<V> for LocalWordExpr {
         true
     }
 }
+
 
 pub struct PairExpr<A, B> {
     pub first: A,
