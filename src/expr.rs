@@ -95,6 +95,22 @@ impl<V, T : Expr<V>, U : Expr<V>> Expr<V> for WordBinExpr<T, U> {
     }
 }
 
+pub struct AllocExpr<T, U>(pub T, pub U);
+
+impl<V, T : Expr<V>, U : Expr<V>> Expr<V> for AllocExpr<T, U> {
+    fn size(&self) -> Counts {
+        assert!(self.0.size() == (Counts {words: 1, ptrs: 0}));
+        assert!(self.1.size() == (Counts {words: 1, ptrs: 0}));
+        Counts {words: 0, ptrs: 1}
+    }
+    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
+        self.1.copy_to_stack(ctx)?;
+        self.0.copy_to_stack(ctx)?;
+        ctx.add_instruction(VMStatement::AllocPtr);
+        Ok(())
+    }
+}
+
 
 // lvalues
 
