@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
+use anyhow::bail;
 
 use crate::assembly::{VMType, Counts, VMStatement};
+
+use crate::error::Res;
 
 trait ExprCtx<V> {
     fn lock_local(&mut self, typ: VMType) -> usize;
@@ -10,8 +13,8 @@ trait ExprCtx<V> {
 
 trait Expr<V> {
     fn size(&self) -> Counts;
-    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> bool {
-        false
+    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
+        bail!("not implemented");
     }
 }
 
@@ -42,9 +45,9 @@ impl<V> Expr<V> for ConstWordExpr {
     fn size(&self) -> Counts {
         Counts {words: 1, ptrs: 0}
     }
-    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> bool {
+    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         ctx.add_instruction(VMStatement::ConstWord(self.value));
-        true
+        Ok(())
     }
 }
 
@@ -54,9 +57,9 @@ impl<V> Expr<V> for NullExpr {
     fn size(&self) -> Counts {
         Counts {words: 0, ptrs: 1}
     }
-    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> bool {
+    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         ctx.add_instruction(VMStatement::Null);
-        true
+        Ok(())
     }
 }
 
@@ -71,9 +74,9 @@ impl<V> Expr<V> for LocalPtrExpr {
     fn size(&self) -> Counts {
         Counts { words: 0, ptrs: 1 }
     }
-    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> bool {
+    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         ctx.add_instruction(VMStatement::PushPtr(self.index));
-        true
+        Ok(())
     }
 }
 
@@ -104,9 +107,9 @@ impl<V> Expr<V> for LocalWordExpr {
     fn size(&self) -> Counts {
         Counts { words: 1, ptrs: 0 }
     }
-    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> bool {
+    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         ctx.add_instruction(VMStatement::PushWord(self.index));
-        true
+        Ok(())
     }
 }
 impl<V> LExpr<V> for LocalWordExpr {
@@ -137,8 +140,10 @@ impl<V, A : Expr<V>, B : Expr<V>> Expr<V> for PairExpr<A, B> {
     fn size(&self) -> Counts {
         self.first.size() + self.second.size()
     }
-    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> bool {
-        self.first.copy_to_stack(ctx) && self.second.copy_to_stack(ctx)
+    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
+        self.first.copy_to_stack(ctx)?;
+        self.second.copy_to_stack(ctx)?;
+        Ok(())
     }
 }
 
@@ -172,10 +177,8 @@ impl<V, A : Expr<V>> Expr<V> for IndexExpr<A> {
         }
         self.span
     }
-    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> bool {
-        if !self.ptr_expr.copy_to_stack(ctx) {
-            return false;
-        }
+    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
+        self.ptr_expr.copy_to_stack(ctx)?;
         let ptr_temp = ctx.lock_local(VMType::Ptr);
         for i in 0..self.span.words {
             ctx.add_instruction(VMStatement::ConstWord((self.start.words + i) as u64));
@@ -190,7 +193,7 @@ impl<V, A : Expr<V>> Expr<V> for IndexExpr<A> {
             ctx.add_instruction(VMStatement::Null);
             ctx.add_instruction(VMStatement::SwapPtr(ptr_temp));
         }
-        return true;
+        Ok(())
     }
 }
 impl<V, A : LExpr<V>> LExpr<V> for IndexExpr<A> {

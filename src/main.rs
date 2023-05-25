@@ -1,3 +1,4 @@
+mod error;
 mod assembly;
 mod interpreter;
 mod expr;
