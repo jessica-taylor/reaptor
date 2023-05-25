@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use anyhow::bail;
 
-use crate::assembly::{VMType, Counts, VMStatement};
+use crate::assembly::{VMType, Counts, VMStatement, WordUnOp, WordBinOp};
 
 use crate::error::Res;
 
@@ -61,6 +61,20 @@ impl<V: Clone> Expr<V> for FunPtrExpr<V> {
     }
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         ctx.add_instruction(VMStatement::FunPtr(self.0.clone(), self.1.clone()));
+        Ok(())
+    }
+}
+
+pub struct WordUnExpr<T>(pub WordUnOp, pub T);
+
+impl<V, T : Expr<V>> Expr<V> for WordUnExpr<T> {
+    fn size(&self) -> Counts {
+        assert!(self.1.size() == (Counts {words: 1, ptrs: 0}));
+        Counts {words: 1, ptrs: 0}
+    }
+    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
+        self.1.copy_to_stack(ctx)?;
+        ctx.add_instruction(VMStatement::WordUn(self.0));
         Ok(())
     }
 }
