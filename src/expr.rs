@@ -27,6 +27,15 @@ trait LExpr<V> : Expr<V> {
     fn move_from_stack(&self, ctx: &mut impl ExprCtx<V>, handle: &mut Self::Handle) -> Res<()>;
 }
 
+// impl<V> Expr<V> for Box<dyn Expr<V>> {
+//     fn size(&self) -> Counts {
+//         self.as_ref().size()
+//     }
+//     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
+//         self.as_ref().copy_to_stack(ctx)
+//     }
+// }
+
 // rvalues
 
 pub struct ConstWordExpr(pub u64);
@@ -308,6 +317,29 @@ impl<V, A : LExpr<V>> LExpr<V> for IndexExpr<A> {
         ctx.add_instruction(VMStatement::PopPtr(handle.1));
         ctx.unlock_local(VMType::Ptr, ptr_temp);
         Ok(())
+    }
+}
+
+pub enum DynLExpr {
+    LocalPtr(LocalPtrExpr),
+    LocalWord(LocalWordExpr),
+    Pair(Box<PairExpr<DynLExpr, DynLExpr>>)
+}
+
+impl<V> Expr<V> for DynLExpr {
+    fn size(&self) -> Counts {
+        match self {
+            Self::LocalPtr(x) => <LocalPtrExpr as Expr<V>>::size(x),
+            Self::LocalWord(x) => <LocalWordExpr as Expr<V>>::size(x),
+            Self::Pair(x) => <PairExpr<DynLExpr, DynLExpr> as Expr<V>>::size(x)
+        }
+    }
+    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
+        match self {
+            Self::LocalPtr(x) => x.copy_to_stack(ctx),
+            Self::LocalWord(x) => x.copy_to_stack(ctx),
+            Self::Pair(x) => x.as_ref().copy_to_stack(ctx)
+        }
     }
 }
 
