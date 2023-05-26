@@ -454,6 +454,30 @@ pub enum DynRExpr<V> {
     FunPtr(FunPtrExpr<V>)
 }
 
+impl<V> DynRExpr<V> {
+    fn mk_local_ptr(index: usize) -> Self {
+        Self::LocalPtr(LocalPtrExpr {index})
+    }
+    fn mk_local_word(index: usize) -> Self {
+        Self::LocalWord(LocalWordExpr {index})
+    }
+    fn mk_pair(first: DynRExpr<V>, second: DynRExpr<V>) -> Self {
+        Self::Pair(Box::new(PairExpr {first, second}))
+    }
+    fn mk_index(ptr_expr: DynRExpr<V>, start: Counts, span: Counts) -> Self {
+        Self::Index(Box::new(IndexExpr {ptr_expr, start, span}))
+    }
+    fn mk_const_word(value: u64) -> Self {
+        Self::ConstWord(ConstWordExpr(value))
+    }
+    fn mk_null() -> Self {
+        Self::Null(NullExpr())
+    }
+    fn mk_fun_ptr(module: V, fun: V) -> Self {
+        Self::FunPtr(FunPtrExpr(module, fun))
+    }
+}
+
 impl<V> HasSize for DynRExpr<V> {
     fn size(&self) -> Counts {
         match self {
