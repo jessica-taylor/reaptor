@@ -429,6 +429,31 @@ impl<V> LExpr<V> for DynLExpr {
     }
 }
 
+pub enum DynRExpr {
+    LExpr(DynLExpr),
+    Null(NullExpr),
+}
+
+impl HasSize for DynRExpr {
+    fn size(&self) -> Counts {
+        match self {
+            Self::LExpr(x) => x.size(),
+            Self::Null(x) => x.size()
+        }
+    }
+}
+
+impl<V> Expr<V> for DynRExpr {
+    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
+        match self {
+            Self::LExpr(x) => x.copy_to_stack(ctx),
+            Self::Null(x) => x.copy_to_stack(ctx)
+        }
+    }
+}
+
+
+
 // #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 // pub enum LPtrExpr<V> {
 //     Local(usize),
