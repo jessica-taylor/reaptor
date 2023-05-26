@@ -41,6 +41,25 @@ trait LExpr<V> : Expr<V> {
 
 // rvalues
 
+
+pub struct MoveExpr<T> {
+    moved: T
+}
+
+impl<T: HasSize> HasSize for MoveExpr<T> {
+    fn size(&self) -> Counts {
+        self.moved.size()
+    }
+}
+
+impl<V, T : LExpr<V>> Expr<V> for MoveExpr<T> {
+    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
+        let mut handle = self.moved.load(ctx)?;
+        self.moved.move_to_stack(ctx, &mut handle)?;
+        self.moved.unload(ctx, handle)
+    }
+}
+
 pub struct ConstWordExpr {value: u64}
 
 impl HasSize for ConstWordExpr {
@@ -174,21 +193,24 @@ impl<V, T : Expr<V>, U : Expr<V>> Expr<V> for AllocExpr<T, U> {
     }
 }
 
-pub struct MoveExpr<T> {
-    moved: T
+pub struct CallExpr<V, T> {
+    module: V,
+    function: V,
+    args: T,
+    size: Counts
 }
 
-impl<T: HasSize> HasSize for MoveExpr<T> {
+impl<V, T : HasSize> HasSize for CallExpr<V, T> {
     fn size(&self) -> Counts {
-        self.moved.size()
+        self.size
     }
 }
 
-impl<V, T : LExpr<V>> Expr<V> for MoveExpr<T> {
+impl<V : Clone, T : Expr<V>> Expr<V> for CallExpr<V, T> {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
-        let mut handle = self.moved.load(ctx)?;
-        self.moved.move_to_stack(ctx, &mut handle)?;
-        self.moved.unload(ctx, handle)
+        self.args.copy_to_stack(ctx)?;
+        ctx.add_instruction(VMStatement::Call(self.module.clone(), self.function.clone()));
+        Ok(())
     }
 }
 
@@ -507,7 +529,7 @@ pub enum DynRExpr<V> {
     WordUn(Box<WordUnExpr<DynRExpr<V>>>),
     WordBin(Box<WordBinExpr<DynRExpr<V>, DynRExpr<V>>>),
     PtrUn(Box<PtrUnExpr<DynRExpr<V>>>),
-    Alloc(Box<AllocExpr<DynRExpr<V>, DynRExpr<V>>>)
+    Alloc(Box<AllocExpr<DynRExpr<V>, DynRExpr<V>>>),
 }
 
 impl<V> DynRExpr<V> {
