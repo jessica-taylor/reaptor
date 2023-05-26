@@ -384,7 +384,7 @@ impl<V> Expr<V> for DynLExpr {
             Self::LocalPtr(x) => x.copy_to_stack(ctx),
             Self::LocalWord(x) => x.copy_to_stack(ctx),
             Self::Pair(x) => x.copy_to_stack(ctx),
-            Self::Index(x) => x.as_ref().copy_to_stack(ctx)
+            Self::Index(x) => x.copy_to_stack(ctx)
         }
     }
 }
