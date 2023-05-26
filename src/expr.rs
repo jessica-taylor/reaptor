@@ -152,20 +152,23 @@ impl<V, T : Expr<V>> Expr<V> for PtrUnExpr<T> {
     }
 }
 
-pub struct AllocExpr<T, U>(pub T, pub U);
+pub struct AllocExpr<T, U> {
+    words: T,
+    ptrs: U
+}
 
 impl<T : HasSize, U : HasSize> HasSize for AllocExpr<T, U> {
     fn size(&self) -> Counts {
-        assert!(self.0.size() == (Counts {words: 1, ptrs: 0}));
-        assert!(self.1.size() == (Counts {words: 1, ptrs: 0}));
+        assert!(self.words.size() == (Counts {words: 1, ptrs: 0}));
+        assert!(self.ptrs.size() == (Counts {words: 1, ptrs: 0}));
         Counts {words: 0, ptrs: 1}
     }
 }
 
 impl<V, T : Expr<V>, U : Expr<V>> Expr<V> for AllocExpr<T, U> {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
-        self.1.copy_to_stack(ctx)?;
-        self.0.copy_to_stack(ctx)?;
+        self.words.copy_to_stack(ctx)?;
+        self.ptrs.copy_to_stack(ctx)?;
         ctx.add_instruction(VMStatement::AllocPtr);
         Ok(())
     }
@@ -484,7 +487,8 @@ pub enum DynRExpr<V> {
     FunPtr(FunPtrExpr<V>),
     WordUn(Box<WordUnExpr<DynRExpr<V>>>),
     WordBin(Box<WordBinExpr<DynRExpr<V>, DynRExpr<V>>>),
-    PtrUn(Box<PtrUnExpr<DynRExpr<V>>>)
+    PtrUn(Box<PtrUnExpr<DynRExpr<V>>>),
+    Alloc(Box<AllocExpr<DynRExpr<V>, DynRExpr<V>>>)
 }
 
 impl<V> DynRExpr<V> {
@@ -518,6 +522,9 @@ impl<V> DynRExpr<V> {
     fn mk_ptr_un(op: PtrUnOp, operand: DynRExpr<V>) -> Self {
         Self::PtrUn(Box::new(PtrUnExpr {op, operand}))
     }
+    fn mk_alloc(words: DynRExpr<V>, ptrs: DynRExpr<V>) -> Self {
+        Self::Alloc(Box::new(AllocExpr {words, ptrs}))
+    }
 }
 
 impl<V> HasSize for DynRExpr<V> {
@@ -532,7 +539,8 @@ impl<V> HasSize for DynRExpr<V> {
             Self::FunPtr(x) => x.size(),
             Self::WordUn(x) => x.size(),
             Self::WordBin(x) => x.size(),
-            Self::PtrUn(x) => x.size()
+            Self::PtrUn(x) => x.size(),
+            Self::Alloc(x) => x.size()
         }
     }
 }
@@ -549,7 +557,8 @@ impl<V: Clone> Expr<V> for DynRExpr<V> {
             Self::FunPtr(x) => x.copy_to_stack(ctx),
             Self::WordUn(x) => x.copy_to_stack(ctx),
             Self::WordBin(x) => x.copy_to_stack(ctx),
-            Self::PtrUn(x) => x.copy_to_stack(ctx)
+            Self::PtrUn(x) => x.copy_to_stack(ctx),
+            Self::Alloc(x) => x.copy_to_stack(ctx)
         }
     }
 }
