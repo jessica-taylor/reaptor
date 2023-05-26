@@ -41,7 +41,7 @@ trait LExpr<V> : Expr<V> {
 
 // rvalues
 
-pub struct ConstWordExpr(pub u64);
+pub struct ConstWordExpr {value: u64}
 
 impl HasSize for ConstWordExpr {
     fn size(&self) -> Counts {
@@ -51,12 +51,12 @@ impl HasSize for ConstWordExpr {
 
 impl<V> Expr<V> for ConstWordExpr {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
-        ctx.add_instruction(VMStatement::ConstWord(self.0));
+        ctx.add_instruction(VMStatement::ConstWord(self.value));
         Ok(())
     }
 }
 
-pub struct NullExpr();
+pub struct NullExpr {}
 
 impl HasSize for NullExpr {
     fn size(&self) -> Counts {
@@ -70,7 +70,10 @@ impl<V> Expr<V> for NullExpr {
     }
 }
 
-pub struct FunPtrExpr<V>(pub V, pub V);
+pub struct FunPtrExpr<V> {
+    module: V,
+    function: V
+}
 
 impl<V> HasSize for FunPtrExpr<V> {
     fn size(&self) -> Counts {
@@ -81,60 +84,70 @@ impl<V> HasSize for FunPtrExpr<V> {
 
 impl<V: Clone> Expr<V> for FunPtrExpr<V> {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
-        ctx.add_instruction(VMStatement::FunPtr(self.0.clone(), self.1.clone()));
+        ctx.add_instruction(VMStatement::FunPtr(self.module.clone(), self.function.clone()));
         Ok(())
     }
 }
 
-pub struct WordUnExpr<T>(pub WordUnOp, pub T);
+pub struct WordUnExpr<T> {
+    op: WordUnOp,
+    operand: T
+}
 
 impl<T : HasSize> HasSize for WordUnExpr<T> {
     fn size(&self) -> Counts {
-        assert!(self.1.size() == (Counts {words: 1, ptrs: 0}));
+        assert!(self.operand.size() == (Counts {words: 1, ptrs: 0}));
         Counts {words: 1, ptrs: 0}
     }
 }
 
 impl<V, T : Expr<V>> Expr<V> for WordUnExpr<T> {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
-        self.1.copy_to_stack(ctx)?;
-        ctx.add_instruction(VMStatement::WordUn(self.0));
+        self.operand.copy_to_stack(ctx)?;
+        ctx.add_instruction(VMStatement::WordUn(self.op));
         Ok(())
     }
 }
 
-pub struct WordBinExpr<T, U>(pub WordBinOp, pub T, pub U);
+pub struct WordBinExpr<T, U> {
+    op: WordBinOp,
+    lhs: T,
+    rhs: U
+}
 
 impl<T : HasSize, U : HasSize> HasSize for WordBinExpr<T, U> {
     fn size(&self) -> Counts {
-        assert!(self.1.size() == (Counts {words: 1, ptrs: 0}));
-        assert!(self.2.size() == (Counts {words: 1, ptrs: 0}));
+        assert!(self.lhs.size() == (Counts {words: 1, ptrs: 0}));
+        assert!(self.rhs.size() == (Counts {words: 1, ptrs: 0}));
         Counts {words: 1, ptrs: 0}
     }
 }
 
 impl<V, T : Expr<V>, U : Expr<V>> Expr<V> for WordBinExpr<T, U> {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
-        self.1.copy_to_stack(ctx)?;
-        self.2.copy_to_stack(ctx)?;
-        ctx.add_instruction(VMStatement::WordBin(self.0));
+        self.lhs.copy_to_stack(ctx)?;
+        self.rhs.copy_to_stack(ctx)?;
+        ctx.add_instruction(VMStatement::WordBin(self.op));
         Ok(())
     }
 }
 
-pub struct PtrUnExpr<T>(pub PtrUnOp, pub T);
+pub struct PtrUnExpr<T> {
+    op: PtrUnOp,
+    operand: T
+}
 
 impl<T : HasSize> HasSize for PtrUnExpr<T> {
     fn size(&self) -> Counts {
-        assert!(self.1.size() == (Counts {words: 0, ptrs: 1}));
+        assert!(self.operand.size() == (Counts {words: 0, ptrs: 1}));
         Counts {words: 1, ptrs: 0}
     }
 }
 
 impl<V, T : Expr<V>> Expr<V> for PtrUnExpr<T> {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
-        self.1.copy_to_stack(ctx)?;
-        ctx.add_instruction(VMStatement::PtrUn(self.0));
+        self.operand.copy_to_stack(ctx)?;
+        ctx.add_instruction(VMStatement::PtrUn(self.op));
         Ok(())
     }
 }
@@ -470,7 +483,8 @@ pub enum DynRExpr<V> {
     Null(NullExpr),
     FunPtr(FunPtrExpr<V>),
     WordUn(Box<WordUnExpr<DynRExpr<V>>>),
-    WordBin(Box<WordBinExpr<DynRExpr<V>, DynRExpr<V>>>)
+    WordBin(Box<WordBinExpr<DynRExpr<V>, DynRExpr<V>>>),
+    PtrUn(Box<PtrUnExpr<DynRExpr<V>>>)
 }
 
 impl<V> DynRExpr<V> {
@@ -487,19 +501,22 @@ impl<V> DynRExpr<V> {
         Self::Index(Box::new(IndexExpr {ptr_expr, start, span}))
     }
     fn mk_const_word(value: u64) -> Self {
-        Self::ConstWord(ConstWordExpr(value))
+        Self::ConstWord(ConstWordExpr {value})
     }
     fn mk_null() -> Self {
-        Self::Null(NullExpr())
+        Self::Null(NullExpr {})
     }
-    fn mk_fun_ptr(module: V, fun: V) -> Self {
-        Self::FunPtr(FunPtrExpr(module, fun))
+    fn mk_fun_ptr(module: V, function: V) -> Self {
+        Self::FunPtr(FunPtrExpr {module, function})
     }
     fn mk_word_un(op: WordUnOp, operand: DynRExpr<V>) -> Self {
-        Self::WordUn(Box::new(WordUnExpr(op, operand)))
+        Self::WordUn(Box::new(WordUnExpr {op, operand}))
     }
     fn mk_word_bin(op: WordBinOp, lhs: DynRExpr<V>, rhs: DynRExpr<V>) -> Self {
-        Self::WordBin(Box::new(WordBinExpr(op, lhs, rhs)))
+        Self::WordBin(Box::new(WordBinExpr {op, lhs, rhs}))
+    }
+    fn mk_ptr_un(op: PtrUnOp, operand: DynRExpr<V>) -> Self {
+        Self::PtrUn(Box::new(PtrUnExpr {op, operand}))
     }
 }
 
@@ -514,7 +531,8 @@ impl<V> HasSize for DynRExpr<V> {
             Self::Null(x) => x.size(),
             Self::FunPtr(x) => x.size(),
             Self::WordUn(x) => x.size(),
-            Self::WordBin(x) => x.size()
+            Self::WordBin(x) => x.size(),
+            Self::PtrUn(x) => x.size()
         }
     }
 }
@@ -530,7 +548,8 @@ impl<V: Clone> Expr<V> for DynRExpr<V> {
             Self::Null(x) => x.copy_to_stack(ctx),
             Self::FunPtr(x) => x.copy_to_stack(ctx),
             Self::WordUn(x) => x.copy_to_stack(ctx),
-            Self::WordBin(x) => x.copy_to_stack(ctx)
+            Self::WordBin(x) => x.copy_to_stack(ctx),
+            Self::PtrUn(x) => x.copy_to_stack(ctx)
         }
     }
 }
