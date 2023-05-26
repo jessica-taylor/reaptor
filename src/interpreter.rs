@@ -382,16 +382,16 @@ impl<'a> Interpreter<'a> {
                 };
                 self.call_stack.push(new_call_frame);
             }
-            VMStatement::CallPtr(arg_w, arg_p, ret_w, ret_p) => {
+            VMStatement::CallPtr(arg_counts, ret_counts) => {
                 let ptr = self.ptr_stack.pop().ok_or(anyhow!("No ptr"))?;
                 let proc = match ptr {
                     PtrIValue::Fun(module, proc) => &self.procedures[module][proc],
                     _ => bail!("Not a function".to_string()),
                 };
-                if proc.param_counts.words != *arg_w || proc.param_counts.ptrs != *arg_p {
+                if proc.param_counts != *arg_counts {
                     bail!("Wrong number of arguments".to_string());
                 }
-                if proc.return_counts.words != *ret_w || proc.return_counts.ptrs != *ret_p {
+                if proc.return_counts != *ret_counts {
                     bail!("Wrong number of return values".to_string());
                 }
                 let new_call_frame = CallFrame {

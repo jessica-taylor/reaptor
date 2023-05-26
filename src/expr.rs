@@ -231,8 +231,7 @@ impl<V : Clone, F : Expr<V>, T : Expr<V>> Expr<V> for CallPtrExpr<F, T> {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         self.args.copy_to_stack(ctx)?;
         self.fun_ptr.copy_to_stack(ctx)?;
-        let args_size = self.args.size();
-        ctx.add_instruction(VMStatement::CallPtr(args_size.words, args_size.ptrs, self.size.words, self.size.ptrs));
+        ctx.add_instruction(VMStatement::CallPtr(self.args.size(), self.size));
         Ok(())
     }
 }

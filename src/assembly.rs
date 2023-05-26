@@ -162,7 +162,7 @@ pub enum VMStatement<V> {
     SetPtrAt,
     SwapPtrAt,
     Call(V, V),
-    CallPtr(usize, usize, usize, usize),
+    CallPtr(Counts, Counts),
     If(Vec<VMStatement<V>>, Vec<VMStatement<V>>),
     While(Vec<VMStatement<V>>, Vec<VMStatement<V>>),
 }
@@ -200,7 +200,7 @@ impl<V> VMStatement<V> {
             Self::SetPtrAt => (Counts { words: 1, ptrs: 2 }, Counts { words: 0, ptrs: 1 }),
             Self::SwapPtrAt => (Counts { words: 1, ptrs: 2 }, Counts { words: 0, ptrs: 2 }),
             Self::Call(module, proc) => typer.args_rets(module, proc)?,
-            Self::CallPtr(a, b, c, d) => (Counts { words: *a, ptrs: *b }, Counts { words: *c, ptrs: *d }),
+            Self::CallPtr(arg_counts, ret_counts) => (*arg_counts, *ret_counts),
             Self::If(thn, els) => {
                 let (thn_arg, thn_ret) = Self::total_stack_type(thn, typer)?;
                 let (els_arg, els_ret) = Self::total_stack_type(els, typer)?;
@@ -263,7 +263,7 @@ impl<V> VMStatement<V> {
                 let p = mapper.map_procedure(module, proc)?;
                 VMStatement::Call(m, p)
             },
-            Self::CallPtr(a, b, c, d) => VMStatement::CallPtr(*a, *b, *c, *d),
+            Self::CallPtr(a, r) => VMStatement::CallPtr(*a, *r),
             Self::If(thn, els) => VMStatement::If(Self::multi_map(thn, mapper)?, Self::multi_map(els, mapper)?),
             Self::While(cond, body) => VMStatement::While(Self::multi_map(cond, mapper)?, Self::multi_map(body, mapper)?),
         })
