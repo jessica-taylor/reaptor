@@ -359,6 +359,12 @@ pub enum DynLExpr {
     Pair(Box<PairExpr<DynLExpr, DynLExpr>>)
 }
 
+pub enum DynHandle<V> {
+    LocalPtr(<LocalPtrExpr as LExpr<V>>::Handle),
+    LocalWord(<LocalWordExpr as LExpr<V>>::Handle),
+    Pair(Box<<PairExpr<DynLExpr, DynLExpr> as LExpr<V>>::Handle>)
+}
+
 impl HasSize for DynLExpr {
     fn size(&self) -> Counts {
         match self {
@@ -376,6 +382,37 @@ impl<V> Expr<V> for DynLExpr {
             Self::LocalWord(x) => x.copy_to_stack(ctx),
             Self::Pair(x) => x.as_ref().copy_to_stack(ctx)
         }
+    }
+}
+
+impl<V> LExpr<V> for DynLExpr {
+    type Handle = DynHandle<V>;
+
+    fn load(&self, ctx: &mut impl ExprCtx<V>) -> Res<Self::Handle> {
+        match self {
+            Self::LocalPtr(x) => Ok(DynHandle::LocalPtr(x.load(ctx)?)),
+            Self::LocalWord(x) => Ok(DynHandle::LocalWord(x.load(ctx)?)),
+            Self::Pair(x) => Ok(DynHandle::Pair(Box::new(x.load(ctx)?)))
+        }
+    }
+    fn unload(&self, ctx: &mut impl ExprCtx<V>, handle: Self::Handle) -> Res<()> {
+        match (self, handle) {
+            (Self::LocalPtr(x), DynHandle::LocalPtr(h)) => x.unload(ctx, h),
+            (Self::LocalWord(x), DynHandle::LocalWord(h)) => x.unload(ctx, h),
+            (Self::Pair(x), DynHandle::Pair(h)) => x.unload(ctx, *h),
+            _ => bail!("no match")
+        }
+    }
+    fn move_to_stack(&self, ctx: &mut impl ExprCtx<V>, handle: &mut Self::Handle) -> Res<()> {
+        match (self, handle) {
+            (Self::LocalPtr(x), DynHandle::LocalPtr(h)) => x.move_to_stack(ctx, h),
+            (Self::LocalWord(x), DynHandle::LocalWord(h)) => x.move_to_stack(ctx, h),
+            (Self::Pair(x), DynHandle::Pair(h)) => x.move_to_stack(ctx, h),
+            _ => bail!("no match")
+        }
+    }
+    fn move_from_stack(&self, ctx: &mut impl ExprCtx<V>, handle: &mut Self::Handle) -> Res<()> {
+        bail!("not implemented")
     }
 }
 
