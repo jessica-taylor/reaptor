@@ -451,7 +451,9 @@ pub enum DynRExpr<V> {
     Index(Box<IndexExpr<DynRExpr<V>>>),
     ConstWord(ConstWordExpr),
     Null(NullExpr),
-    FunPtr(FunPtrExpr<V>)
+    FunPtr(FunPtrExpr<V>),
+    WordUn(Box<WordUnExpr<DynRExpr<V>>>),
+    WordBin(Box<WordBinExpr<DynRExpr<V>, DynRExpr<V>>>)
 }
 
 impl<V> DynRExpr<V> {
@@ -476,6 +478,12 @@ impl<V> DynRExpr<V> {
     fn mk_fun_ptr(module: V, fun: V) -> Self {
         Self::FunPtr(FunPtrExpr(module, fun))
     }
+    fn mk_word_un(op: WordUnOp, operand: DynRExpr<V>) -> Self {
+        Self::WordUn(Box::new(WordUnExpr(op, operand)))
+    }
+    fn mk_word_bin(op: WordBinOp, lhs: DynRExpr<V>, rhs: DynRExpr<V>) -> Self {
+        Self::WordBin(Box::new(WordBinExpr(op, lhs, rhs)))
+    }
 }
 
 impl<V> HasSize for DynRExpr<V> {
@@ -487,7 +495,9 @@ impl<V> HasSize for DynRExpr<V> {
             Self::Index(x) => x.size(),
             Self::ConstWord(x) => x.size(),
             Self::Null(x) => x.size(),
-            Self::FunPtr(x) => x.size()
+            Self::FunPtr(x) => x.size(),
+            Self::WordUn(x) => x.size(),
+            Self::WordBin(x) => x.size()
         }
     }
 }
@@ -501,7 +511,9 @@ impl<V: Clone> Expr<V> for DynRExpr<V> {
             Self::Index(x) => x.copy_to_stack(ctx),
             Self::ConstWord(x) => x.copy_to_stack(ctx),
             Self::Null(x) => x.copy_to_stack(ctx),
-            Self::FunPtr(x) => x.copy_to_stack(ctx)
+            Self::FunPtr(x) => x.copy_to_stack(ctx),
+            Self::WordUn(x) => x.copy_to_stack(ctx),
+            Self::WordBin(x) => x.copy_to_stack(ctx)
         }
     }
 }
