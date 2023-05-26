@@ -360,6 +360,21 @@ pub enum DynLExpr {
     Index(Box<IndexExpr<DynLExpr>>)
 }
 
+impl DynLExpr {
+    fn mk_local_ptr(index: usize) -> Self {
+        Self::LocalPtr(LocalPtrExpr {index})
+    }
+    fn mk_local_word(index: usize) -> Self {
+        Self::LocalWord(LocalWordExpr {index})
+    }
+    fn mk_pair(first: DynLExpr, second: DynLExpr) -> Self {
+        Self::Pair(Box::new(PairExpr {first, second}))
+    }
+    fn mk_index(ptr_expr: DynLExpr, start: Counts, span: Counts) -> Self {
+        Self::Index(Box::new(IndexExpr {ptr_expr, start, span}))
+    }
+}
+
 pub enum DynHandle<V> {
     LocalPtr(<LocalPtrExpr as LExpr<V>>::Handle),
     LocalWord(<LocalWordExpr as LExpr<V>>::Handle),
@@ -430,7 +445,10 @@ impl<V> LExpr<V> for DynLExpr {
 }
 
 pub enum DynRExpr<V> {
-    LExpr(DynLExpr),
+    LocalPtr(LocalPtrExpr),
+    LocalWord(LocalWordExpr),
+    Pair(Box<PairExpr<DynRExpr<V>, DynRExpr<V>>>),
+    Index(Box<IndexExpr<DynRExpr<V>>>),
     ConstWord(ConstWordExpr),
     Null(NullExpr),
     FunPtr(FunPtrExpr<V>)
@@ -439,7 +457,10 @@ pub enum DynRExpr<V> {
 impl<V> HasSize for DynRExpr<V> {
     fn size(&self) -> Counts {
         match self {
-            Self::LExpr(x) => x.size(),
+            Self::LocalPtr(x) => x.size(),
+            Self::LocalWord(x) => x.size(),
+            Self::Pair(x) => x.size(),
+            Self::Index(x) => x.size(),
             Self::ConstWord(x) => x.size(),
             Self::Null(x) => x.size(),
             Self::FunPtr(x) => x.size()
@@ -450,7 +471,10 @@ impl<V> HasSize for DynRExpr<V> {
 impl<V: Clone> Expr<V> for DynRExpr<V> {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         match self {
-            Self::LExpr(x) => x.copy_to_stack(ctx),
+            Self::LocalPtr(x) => x.copy_to_stack(ctx),
+            Self::LocalWord(x) => x.copy_to_stack(ctx),
+            Self::Pair(x) => x.copy_to_stack(ctx),
+            Self::Index(x) => x.copy_to_stack(ctx),
             Self::ConstWord(x) => x.copy_to_stack(ctx),
             Self::Null(x) => x.copy_to_stack(ctx),
             Self::FunPtr(x) => x.copy_to_stack(ctx)
