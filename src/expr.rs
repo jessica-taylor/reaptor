@@ -174,6 +174,24 @@ impl<V, T : Expr<V>, U : Expr<V>> Expr<V> for AllocExpr<T, U> {
     }
 }
 
+pub struct MoveExpr<T> {
+    moved: T
+}
+
+impl<T: HasSize> HasSize for MoveExpr<T> {
+    fn size(&self) -> Counts {
+        self.moved.size()
+    }
+}
+
+impl<V, T : LExpr<V>> Expr<V> for MoveExpr<T> {
+    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
+        let mut handle = self.moved.load(ctx)?;
+        self.moved.move_to_stack(ctx, &mut handle)?;
+        self.moved.unload(ctx, handle)
+    }
+}
+
 
 // lvalues
 
@@ -482,6 +500,7 @@ pub enum DynRExpr<V> {
     LocalWord(LocalWordExpr),
     Pair(Box<PairExpr<DynRExpr<V>, DynRExpr<V>>>),
     Index(Box<IndexExpr<DynRExpr<V>>>),
+    Move(MoveExpr<DynLExpr>),
     ConstWord(ConstWordExpr),
     Null(NullExpr),
     FunPtr(FunPtrExpr<V>),
@@ -503,6 +522,9 @@ impl<V> DynRExpr<V> {
     }
     fn mk_index(ptr_expr: DynRExpr<V>, start: Counts, span: Counts) -> Self {
         Self::Index(Box::new(IndexExpr {ptr_expr, start, span}))
+    }
+    fn mk_move(moved: DynLExpr) -> Self {
+        Self::Move(MoveExpr {moved})
     }
     fn mk_const_word(value: u64) -> Self {
         Self::ConstWord(ConstWordExpr {value})
@@ -534,6 +556,7 @@ impl<V> HasSize for DynRExpr<V> {
             Self::LocalWord(x) => x.size(),
             Self::Pair(x) => x.size(),
             Self::Index(x) => x.size(),
+            Self::Move(x) => x.size(),
             Self::ConstWord(x) => x.size(),
             Self::Null(x) => x.size(),
             Self::FunPtr(x) => x.size(),
@@ -552,6 +575,7 @@ impl<V: Clone> Expr<V> for DynRExpr<V> {
             Self::LocalWord(x) => x.copy_to_stack(ctx),
             Self::Pair(x) => x.copy_to_stack(ctx),
             Self::Index(x) => x.copy_to_stack(ctx),
+            Self::Move(x) => x.copy_to_stack(ctx),
             Self::ConstWord(x) => x.copy_to_stack(ctx),
             Self::Null(x) => x.copy_to_stack(ctx),
             Self::FunPtr(x) => x.copy_to_stack(ctx),
