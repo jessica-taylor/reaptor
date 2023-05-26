@@ -214,6 +214,29 @@ impl<V : Clone, T : Expr<V>> Expr<V> for CallExpr<V, T> {
     }
 }
 
+pub struct CallPtrExpr<F, T> {
+    fun_ptr: F,
+    args: T,
+    size: Counts
+}
+
+impl<F: HasSize, T : HasSize> HasSize for CallPtrExpr<F, T> {
+    fn size(&self) -> Counts {
+        assert!(self.fun_ptr.size() == (Counts {words: 0, ptrs: 1}));
+        self.size
+    }
+}
+
+impl<V : Clone, F : Expr<V>, T : Expr<V>> Expr<V> for CallPtrExpr<F, T> {
+    fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
+        self.args.copy_to_stack(ctx)?;
+        self.fun_ptr.copy_to_stack(ctx)?;
+        let args_size = self.args.size();
+        ctx.add_instruction(VMStatement::CallPtr(args_size.words, args_size.ptrs, self.size.words, self.size.ptrs));
+        Ok(())
+    }
+}
+
 
 // lvalues
 
