@@ -429,25 +429,31 @@ impl<V> LExpr<V> for DynLExpr {
     }
 }
 
-pub enum DynRExpr {
+pub enum DynRExpr<V> {
     LExpr(DynLExpr),
+    ConstWord(ConstWordExpr),
     Null(NullExpr),
+    FunPtr(FunPtrExpr<V>)
 }
 
-impl HasSize for DynRExpr {
+impl<V> HasSize for DynRExpr<V> {
     fn size(&self) -> Counts {
         match self {
             Self::LExpr(x) => x.size(),
-            Self::Null(x) => x.size()
+            Self::ConstWord(x) => x.size(),
+            Self::Null(x) => x.size(),
+            Self::FunPtr(x) => x.size()
         }
     }
 }
 
-impl<V> Expr<V> for DynRExpr {
+impl<V: Clone> Expr<V> for DynRExpr<V> {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         match self {
             Self::LExpr(x) => x.copy_to_stack(ctx),
-            Self::Null(x) => x.copy_to_stack(ctx)
+            Self::ConstWord(x) => x.copy_to_stack(ctx),
+            Self::Null(x) => x.copy_to_stack(ctx),
+            Self::FunPtr(x) => x.copy_to_stack(ctx)
         }
     }
 }
