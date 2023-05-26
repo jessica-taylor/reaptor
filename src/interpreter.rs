@@ -6,7 +6,7 @@ use anyhow::{anyhow, bail};
 
 use serde::{Deserialize, Serialize};
 
-use crate::assembly::{Counts, VMStatement, VMProcedure, VMModule, VMLibrary, WordUnOp, WordBinOp};
+use crate::assembly::{Counts, VMStatement, VMProcedure, VMModule, VMLibrary, WordUnOp, WordBinOp, PtrUnOp};
 use crate::error::Res;
 
 
@@ -175,6 +175,20 @@ fn eval_word_binop(op: WordBinOp, lhs: WordIValue, rhs: WordIValue) -> Res<WordI
     })
 }
 
+fn eval_ptr_unop(op: PtrUnOp, p: &PtrIValue) -> Res<WordIValue> {
+    match op {
+        PtrUnOp::PtrTag => Ok(p.tag()),
+        PtrUnOp::PtrLengthWord => match p {
+            PtrIValue::Rc(r) => Ok(WordIValue(r.words.len() as u64)),
+            _ => bail!("Not an Rc".to_string())
+        },
+        PtrUnOp::PtrLengthPtr => match p {
+            PtrIValue::Rc(r) => Ok(WordIValue(r.ptrs.len() as u64)),
+            _ => bail!("Not an Rc".to_string())
+        }
+    }
+}
+
 #[derive(Default, Clone, Eq, PartialEq)]
 struct IValues {
     words: Vec<WordIValue>,
@@ -293,23 +307,9 @@ impl<'a> Interpreter<'a> {
                 let lhs = self.word_stack.pop().ok_or(anyhow!("No word"))?;
                 self.word_stack.push(eval_word_binop(*op, lhs, rhs)?);
             }
-            VMStatement::PtrTag => {
+            VMStatement::PtrUn(op) => {
                 let p = self.ptr_stack.last().ok_or(anyhow!("No ptr"))?;
-                self.word_stack.push(p.tag());
-            }
-            VMStatement::PtrLengthWord => {
-                let p = self.ptr_stack.last().ok_or(anyhow!("No ptr"))?;
-                match p {
-                    PtrIValue::Rc(r) => self.word_stack.push(WordIValue(r.words.len() as u64)),
-                    _ => bail!("Not an Rc".to_string()),
-                }
-            }
-            VMStatement::PtrLengthPtr => {
-                let p = self.ptr_stack.last().ok_or(anyhow!("No ptr"))?;
-                match p {
-                    PtrIValue::Rc(r) => self.word_stack.push(WordIValue(r.ptrs.len() as u64)),
-                    _ => bail!("Not an Rc".to_string()),
-                }
+                self.word_stack.push(eval_ptr_unop(*op, &p)?);
             }
             VMStatement::AllocPtr => {
                 let ptrs = self.word_stack.pop().ok_or(anyhow!("No word"))?;

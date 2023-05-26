@@ -133,6 +133,13 @@ pub enum WordBinOp {
     Ge(bool),
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone, Copy)]
+pub enum PtrUnOp {
+    PtrTag,
+    PtrLengthWord,
+    PtrLengthPtr
+}
+
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Debug, Clone)]
 pub enum VMStatement<V> {
     DelWord,
@@ -147,9 +154,7 @@ pub enum VMStatement<V> {
     ConstWord(u64),
     WordUn(WordUnOp),
     WordBin(WordBinOp),
-    PtrTag,
-    PtrLengthWord,
-    PtrLengthPtr,
+    PtrUn(PtrUnOp),
     AllocPtr,
     GetWordAt,
     GetPtrAt,
@@ -187,9 +192,7 @@ impl<V> VMStatement<V> {
             Self::ConstWord(_) => (Counts::zero(), Counts { words: 1, ptrs: 0 }),
             Self::WordUn(_) => (Counts { words: 1, ptrs: 0 }, Counts { words: 1, ptrs: 0 }),
             Self::WordBin(_) => (Counts { words: 2, ptrs: 0 }, Counts { words: 1, ptrs: 0 }),
-            Self::PtrTag => (Counts { words: 0, ptrs: 1 }, Counts { words: 1, ptrs: 1 }),
-            Self::PtrLengthWord => (Counts { words: 0, ptrs: 1 }, Counts { words: 1, ptrs: 1 }),
-            Self::PtrLengthPtr => (Counts { words: 0, ptrs: 1 }, Counts { words: 1, ptrs: 1 }),
+            Self::PtrUn(_) => (Counts { words: 0, ptrs: 1 }, Counts { words: 1, ptrs: 1 }),
             Self::AllocPtr => (Counts { words: 2, ptrs: 0 }, Counts { words: 0, ptrs: 1 }),
             Self::GetWordAt => (Counts { words: 1, ptrs: 1 }, Counts { words: 1, ptrs: 1 }),
             Self::GetPtrAt => (Counts { words: 1, ptrs: 1 }, Counts { words: 0, ptrs: 2 }),
@@ -248,9 +251,7 @@ impl<V> VMStatement<V> {
             Self::ConstWord(w) => VMStatement::ConstWord(*w),
             Self::WordUn(op) => VMStatement::WordUn(*op),
             Self::WordBin(op) => VMStatement::WordBin(*op),
-            Self::PtrTag => VMStatement::PtrTag,
-            Self::PtrLengthWord => VMStatement::PtrLengthWord,
-            Self::PtrLengthPtr => VMStatement::PtrLengthPtr,
+            Self::PtrUn(op) => VMStatement::PtrUn(*op),
             Self::AllocPtr => VMStatement::AllocPtr,
             Self::GetWordAt => VMStatement::GetWordAt,
             Self::GetPtrAt => VMStatement::GetPtrAt,
