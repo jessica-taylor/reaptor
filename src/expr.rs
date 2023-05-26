@@ -11,8 +11,11 @@ trait ExprCtx<V> {
     fn add_instruction(&mut self, stmt: VMStatement<V>);
 }
 
-trait Expr<V> {
+trait HasSize {
     fn size(&self) -> Counts;
+}
+
+trait Expr<V> : HasSize {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         bail!("not implemented");
     }
@@ -40,10 +43,13 @@ trait LExpr<V> : Expr<V> {
 
 pub struct ConstWordExpr(pub u64);
 
-impl<V> Expr<V> for ConstWordExpr {
+impl HasSize for ConstWordExpr {
     fn size(&self) -> Counts {
         Counts {words: 1, ptrs: 0}
     }
+}
+
+impl<V> Expr<V> for ConstWordExpr {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         ctx.add_instruction(VMStatement::ConstWord(self.0));
         Ok(())
@@ -52,22 +58,28 @@ impl<V> Expr<V> for ConstWordExpr {
 
 pub struct NullExpr();
 
-impl<V> Expr<V> for NullExpr {
+impl HasSize for NullExpr {
     fn size(&self) -> Counts {
         Counts {words: 0, ptrs: 1}
     }
+}
+impl<V> Expr<V> for NullExpr {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         ctx.add_instruction(VMStatement::Null);
         Ok(())
     }
 }
 
-pub struct FunPtrExpr<T>(pub T, pub T);
+pub struct FunPtrExpr<V>(pub V, pub V);
 
-impl<V: Clone> Expr<V> for FunPtrExpr<V> {
+impl<V> HasSize for FunPtrExpr<V> {
     fn size(&self) -> Counts {
         Counts {words: 0, ptrs: 1}
     }
+}
+
+
+impl<V: Clone> Expr<V> for FunPtrExpr<V> {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         ctx.add_instruction(VMStatement::FunPtr(self.0.clone(), self.1.clone()));
         Ok(())
@@ -76,11 +88,14 @@ impl<V: Clone> Expr<V> for FunPtrExpr<V> {
 
 pub struct WordUnExpr<T>(pub WordUnOp, pub T);
 
-impl<V, T : Expr<V>> Expr<V> for WordUnExpr<T> {
+impl<T : HasSize> HasSize for WordUnExpr<T> {
     fn size(&self) -> Counts {
         assert!(self.1.size() == (Counts {words: 1, ptrs: 0}));
         Counts {words: 1, ptrs: 0}
     }
+}
+
+impl<V, T : Expr<V>> Expr<V> for WordUnExpr<T> {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         self.1.copy_to_stack(ctx)?;
         ctx.add_instruction(VMStatement::WordUn(self.0));
@@ -90,12 +105,15 @@ impl<V, T : Expr<V>> Expr<V> for WordUnExpr<T> {
 
 pub struct WordBinExpr<T, U>(pub WordBinOp, pub T, pub U);
 
-impl<V, T : Expr<V>, U : Expr<V>> Expr<V> for WordBinExpr<T, U> {
+impl<T : HasSize, U : HasSize> HasSize for WordBinExpr<T, U> {
     fn size(&self) -> Counts {
         assert!(self.1.size() == (Counts {words: 1, ptrs: 0}));
         assert!(self.2.size() == (Counts {words: 1, ptrs: 0}));
         Counts {words: 1, ptrs: 0}
     }
+}
+
+impl<V, T : Expr<V>, U : Expr<V>> Expr<V> for WordBinExpr<T, U> {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         self.1.copy_to_stack(ctx)?;
         self.2.copy_to_stack(ctx)?;
@@ -106,12 +124,15 @@ impl<V, T : Expr<V>, U : Expr<V>> Expr<V> for WordBinExpr<T, U> {
 
 pub struct AllocExpr<T, U>(pub T, pub U);
 
-impl<V, T : Expr<V>, U : Expr<V>> Expr<V> for AllocExpr<T, U> {
+impl<T : HasSize, U : HasSize> HasSize for AllocExpr<T, U> {
     fn size(&self) -> Counts {
         assert!(self.0.size() == (Counts {words: 1, ptrs: 0}));
         assert!(self.1.size() == (Counts {words: 1, ptrs: 0}));
         Counts {words: 0, ptrs: 1}
     }
+}
+
+impl<V, T : Expr<V>, U : Expr<V>> Expr<V> for AllocExpr<T, U> {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         self.1.copy_to_stack(ctx)?;
         self.0.copy_to_stack(ctx)?;
@@ -127,10 +148,13 @@ pub struct LocalPtrExpr {
     pub index: usize,
 }
 
-impl<V> Expr<V> for LocalPtrExpr {
+impl HasSize for LocalPtrExpr {
     fn size(&self) -> Counts {
         Counts { words: 0, ptrs: 1 }
     }
+}
+
+impl<V> Expr<V> for LocalPtrExpr {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         ctx.add_instruction(VMStatement::PushPtr(self.index));
         Ok(())
@@ -160,10 +184,13 @@ pub struct LocalWordExpr {
     pub index: usize,
 }
 
-impl<V> Expr<V> for LocalWordExpr {
+impl HasSize for LocalWordExpr {
     fn size(&self) -> Counts {
         Counts { words: 1, ptrs: 0 }
     }
+}
+
+impl<V> Expr<V> for LocalWordExpr {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         ctx.add_instruction(VMStatement::PushWord(self.index));
         Ok(())
@@ -193,10 +220,13 @@ pub struct PairExpr<A, B> {
     pub second: B,
 }
 
-impl<V, A : Expr<V>, B : Expr<V>> Expr<V> for PairExpr<A, B> {
+impl<A : HasSize, B : HasSize> HasSize for PairExpr<A, B> {
     fn size(&self) -> Counts {
         self.first.size() + self.second.size()
     }
+}
+
+impl<V, A : Expr<V>, B : Expr<V>> Expr<V> for PairExpr<A, B> {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         self.first.copy_to_stack(ctx)?;
         self.second.copy_to_stack(ctx)
@@ -228,7 +258,7 @@ pub struct IndexExpr<A> {
     pub span: Counts
 }
 
-impl<V, A : Expr<V>> Expr<V> for IndexExpr<A> {
+impl<A : HasSize> HasSize for IndexExpr<A> {
     fn size(&self) -> Counts {
         let ptr_size = self.ptr_expr.size();
         if ptr_size != (Counts { words: 0, ptrs: 1 }) {
@@ -236,6 +266,9 @@ impl<V, A : Expr<V>> Expr<V> for IndexExpr<A> {
         }
         self.span
     }
+}
+
+impl<V, A : Expr<V>> Expr<V> for IndexExpr<A> {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         self.ptr_expr.copy_to_stack(ctx)?;
         let ptr_temp = ctx.lock_local(VMType::Ptr);
@@ -326,14 +359,17 @@ pub enum DynLExpr {
     Pair(Box<PairExpr<DynLExpr, DynLExpr>>)
 }
 
-impl<V> Expr<V> for DynLExpr {
+impl HasSize for DynLExpr {
     fn size(&self) -> Counts {
         match self {
-            Self::LocalPtr(x) => <LocalPtrExpr as Expr<V>>::size(x),
-            Self::LocalWord(x) => <LocalWordExpr as Expr<V>>::size(x),
-            Self::Pair(x) => <PairExpr<DynLExpr, DynLExpr> as Expr<V>>::size(x)
+            Self::LocalPtr(x) => x.size(),
+            Self::LocalWord(x) => x.size(),
+            Self::Pair(x) => x.size()
         }
     }
+}
+
+impl<V> Expr<V> for DynLExpr {
     fn copy_to_stack(&self, ctx: &mut impl ExprCtx<V>) -> Res<()> {
         match self {
             Self::LocalPtr(x) => x.copy_to_stack(ctx),
